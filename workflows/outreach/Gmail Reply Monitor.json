@@ -1,0 +1,737 @@
+{
+  "name": "Gmail Reply Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -384,
+        112
+      ],
+      "id": "bd197e3c-0ab7-4c93-a875-c096db2875d0",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -80,
+        -16
+      ],
+      "id": "517edb45-6b55-49e7-bcde-da1e01b9a8f6",
+      "name": "Load Outreach Applications"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean = value =>\n  String(value ?? '').trim();\n\nconst upper = value =>\n  clean(value).toUpperCase();\n\nconst rows = $input\n  .all()\n  .map(item => item.json ?? {})\n  .filter(\n    row => clean(row.opportunity_key)\n  );\n\nconst monitoredStatuses =\n  new Set([\n    'SENT',\n    'FOLLOW_UP_DUE',\n    'FOLLOW_UP_SENT',\n  ]);\n\nconst campaigns = [];\nconst usedThreadIds = new Set();\n\n\nfor (const row of rows) {\n  const opportunityKey =\n    clean(row.opportunity_key);\n\n  const outreachStatus =\n    upper(row.outreach_status);\n\n  const responseStatus =\n    upper(row.response_status) ||\n    'NO_RESPONSE';\n\n  const gmailThreadId =\n    clean(row.gmail_thread_id);\n\n  const sentAt =\n    clean(row.sent_at);\n\n  const replyDetectedAt =\n    clean(row.reply_detected_at);\n\n\n  if (\n    opportunityKey.startsWith('test::')\n  ) {\n    continue;\n  }\n\n  if (\n    !monitoredStatuses.has(\n      outreachStatus\n    )\n  ) {\n    continue;\n  }\n\n  if (\n    responseStatus !== 'NO_RESPONSE'\n  ) {\n    continue;\n  }\n\n  if (!gmailThreadId || !sentAt) {\n    continue;\n  }\n\n  if (replyDetectedAt) {\n    continue;\n  }\n\n  /*\n   * Avoid monitoring the same Gmail thread\n   * more than once.\n   */\n  if (\n    usedThreadIds.has(\n      gmailThreadId\n    )\n  ) {\n    continue;\n  }\n\n  const sentDate =\n    new Date(sentAt);\n\n  if (\n    Number.isNaN(\n      sentDate.getTime()\n    )\n  ) {\n    continue;\n  }\n\n  usedThreadIds.add(\n    gmailThreadId\n  );\n\n  campaigns.push({\n    opportunity_key:\n      opportunityKey,\n\n    company_name:\n      clean(row.company_name),\n\n    position_title:\n      clean(row.position_title),\n\n    contact_name:\n      clean(row.contact_name),\n\n    contact_email:\n      clean(row.contact_email)\n        .toLowerCase(),\n\n    email_subject:\n      clean(row.email_subject),\n\n    sent_at:\n      sentDate.toISOString(),\n\n    gmail_message_id:\n      clean(row.gmail_message_id),\n\n    gmail_thread_id:\n      gmailThreadId,\n\n    outreach_status:\n      outreachStatus,\n\n    response_status:\n      responseStatus,\n  });\n}\n\n\n/*\n * Search from one day before the earliest\n * monitored email to avoid timezone-boundary\n * problems.\n */\nlet searchReceivedAfter = '';\n\nif (campaigns.length) {\n  const earliestTimestamp =\n    Math.min(\n      ...campaigns.map(\n        campaign =>\n          new Date(\n            campaign.sent_at\n          ).getTime()\n      )\n    );\n\n  const searchStart =\n    new Date(\n      earliestTimestamp -\n      24 * 60 * 60 * 1000\n    );\n\n  searchReceivedAfter =\n    searchStart.toISOString();\n}\n\n\nreturn [\n  {\n    json: {\n      monitor_ready:\n        campaigns.length > 0,\n\n      campaign_count:\n        campaigns.length,\n\n      campaigns,\n\n      /*\n       * Search across Gmail, including archived\n       * messages, but exclude messages sent by us.\n       */\n      gmail_search:\n        'in:anywhere -from:me',\n\n      search_received_after:\n        searchReceivedAfter,\n\n      monitor_checked_at:\n        new Date().toISOString(),\n\n      message:\n        campaigns.length\n          ? (\n              `${campaigns.length} campaign(s) ` +\n              'ready for reply monitoring.'\n            )\n          : (\n              'No outreach campaigns currently ' +\n              'require reply monitoring.'\n            ),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -16
+      ],
+      "id": "6a2d7527-b4b7-4d88-8227-e39238db7d1f",
+      "name": "Prepare Reply Search"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4cb44b96-3cc2-4378-a703-889760db58af",
+              "leftValue": "={{ $json.monitor_ready }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        400,
+        -16
+      ],
+      "id": "238f5a34-259d-4180-917e-601f22b685b3",
+      "name": "Campaigns to Monitor?"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 100,
+        "filters": {
+          "includeSpamTrash": false,
+          "q": "=Search {{ $json.gmail_search }}",
+          "readStatus": "both",
+          "receivedAfter": "={{ $json.search_received_after }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        -64
+      ],
+      "id": "ca330c91-f002-4fb8-9620-9adf6fa40a27",
+      "name": "Gmail — Search Incoming Messages",
+      "webhookId": "e845a3ed-5f71-590d-b80d-a9ce00c41b3e",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const preparation =\n  $('Prepare Reply Search')\n    .first()\n    ?.json ?? {};\n\nconst clean = value =>\n  String(value ?? '').trim();\n\nconst campaigns =\n  Array.isArray(preparation.campaigns)\n    ? preparation.campaigns\n    : [];\n\nconst messages = $input\n  .all()\n  .map(item => item.json ?? {})\n  .filter(message =>\n    clean(message.id) &&\n    clean(message.threadId)\n  );\n\n\nfunction extractEmail(value) {\n  const text =\n    clean(value).toLowerCase();\n\n  const angleMatch =\n    text.match(/<([^<>@\\s]+@[^<>@\\s]+)>/);\n\n  if (angleMatch) {\n    return angleMatch[1];\n  }\n\n  const plainMatch =\n    text.match(\n      /[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}/i\n    );\n\n  return plainMatch\n    ? plainMatch[0].toLowerCase()\n    : '';\n}\n\n\nfunction messageTimestamp(message) {\n  const milliseconds =\n    Number(message.internalDate);\n\n  if (!Number.isFinite(milliseconds)) {\n    return 0;\n  }\n\n  return milliseconds;\n}\n\n\nconst matches = [];\n\nfor (const campaign of campaigns) {\n  const threadId =\n    clean(campaign.gmail_thread_id);\n\n  const sentTimestamp =\n    new Date(\n      campaign.sent_at\n    ).getTime();\n\n  if (\n    !threadId ||\n    !Number.isFinite(sentTimestamp)\n  ) {\n    continue;\n  }\n\n  /*\n   * Exact Gmail-thread matching is the main\n   * safeguard. Messages must also have arrived\n   * after the original outreach was sent.\n   */\n  const matchingMessages =\n    messages\n      .filter(message =>\n        clean(message.threadId) ===\n          threadId &&\n        messageTimestamp(message) >\n          sentTimestamp\n      )\n      .sort(\n        (first, second) =>\n          messageTimestamp(second) -\n          messageTimestamp(first)\n      );\n\n  if (!matchingMessages.length) {\n    continue;\n  }\n\n  /*\n   * Use the newest incoming message in the\n   * tracked thread.\n   */\n  const reply =\n    matchingMessages[0];\n\n  const detectedAt =\n    new Date().toISOString();\n\n  matches.push({\n    reply_found:\n      true,\n\n    opportunity_key:\n      clean(\n        campaign.opportunity_key\n      ),\n\n    company_name:\n      clean(\n        campaign.company_name\n      ),\n\n    position_title:\n      clean(\n        campaign.position_title\n      ),\n\n    contact_name:\n      clean(\n        campaign.contact_name\n      ),\n\n    contact_email:\n      clean(\n        campaign.contact_email\n      ),\n\n    gmail_thread_id:\n      threadId,\n\n    response_status:\n      'REPLIED',\n\n    reply_detected_at:\n      detectedAt,\n\n    reply_message_id:\n      clean(reply.id),\n\n    reply_from:\n      clean(reply.From),\n\n    reply_from_email:\n      extractEmail(reply.From),\n\n    reply_subject:\n      clean(reply.Subject),\n\n    reply_snippet:\n      clean(reply.snippet)\n        .slice(0, 1000),\n\n    reply_received_at:\n      new Date(\n        messageTimestamp(reply)\n      ).toISOString(),\n\n    last_updated:\n      detectedAt,\n  });\n}\n\n\nif (!matches.length) {\n  return [\n    {\n      json: {\n        reply_found:\n          false,\n\n        reply_count:\n          0,\n\n        monitored_campaign_count:\n          campaigns.length,\n\n        gmail_message_count:\n          messages.length,\n\n        monitor_checked_at:\n          new Date().toISOString(),\n\n        message:\n          'No replies were found in the monitored Gmail threads.',\n      },\n    },\n  ];\n}\n\n\nreturn matches.map(match => ({\n  json: {\n    ...match,\n\n    reply_count:\n      matches.length,\n\n    monitored_campaign_count:\n      campaigns.length,\n\n    gmail_message_count:\n      messages.length,\n\n    monitor_checked_at:\n      new Date().toISOString(),\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -64
+      ],
+      "id": "0794649a-aa44-463f-83ae-29d7bf7a72dc",
+      "name": "Match Replies to Campaigns"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3b386b4f-245e-40c9-ba61-aefb94bead81",
+              "leftValue": "={{ $json.reply_found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1056,
+        -64
+      ],
+      "id": "fe8b9a64-8bb4-4988-9334-63d58d4ca6bd",
+      "name": "Replies Found?"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "opportunity_key": "={{ $json.opportunity_key }}",
+            "response_status": "={{ $json.response_status }}",
+            "reply_detected_at": "={{ $json.reply_detected_at }}",
+            "reply_message_id": "={{ $json.reply_message_id }}",
+            "reply_from": "={{ $json.reply_from }}",
+            "reply_subject": "={{ $json.reply_subject }}",
+            "reply_snippet": "={{ $json.reply_snippet }}",
+            "last_updated": "={{ $json.last_updated }}"
+          },
+          "matchingColumns": [
+            "opportunity_key"
+          ],
+          "schema": [
+            {
+              "id": "opportunity_key",
+              "displayName": "opportunity_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "position_title",
+              "displayName": "position_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_url",
+              "displayName": "vacancy_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_status",
+              "displayName": "application_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_mode",
+              "displayName": "outreach_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "applied_at",
+              "displayName": "applied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_research_status",
+              "displayName": "contact_research_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_role",
+              "displayName": "contact_role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email",
+              "displayName": "contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email_confidence",
+              "displayName": "contact_email_confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_linkedin_url",
+              "displayName": "contact_linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_channel",
+              "displayName": "outreach_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_draft",
+              "displayName": "outreach_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_approval",
+              "displayName": "outreach_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_status",
+              "displayName": "outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_date",
+              "displayName": "follow_up_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_status",
+              "displayName": "response_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_draft",
+              "displayName": "email_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_connection_note",
+              "displayName": "linkedin_connection_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_message",
+              "displayName": "linkedin_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_final_status",
+              "displayName": "draft_final_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_generated_at",
+              "displayName": "draft_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_file_id",
+              "displayName": "resume_file_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_filename",
+              "displayName": "resume_filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_message_id",
+              "displayName": "gmail_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_thread_id",
+              "displayName": "gmail_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_detected_at",
+              "displayName": "reply_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_message_id",
+              "displayName": "reply_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_from",
+              "displayName": "reply_from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_subject",
+              "displayName": "reply_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_snippet",
+              "displayName": "reply_snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1360,
+        -144
+      ],
+      "id": "e7b848fa-f3a5-4222-ada0-5bea4dc755fa",
+      "name": "Update Replied Campaign"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean = value =>\n  String(value ?? '').trim();\n\nconst matcherItems =\n  $('Match Replies to Campaigns')\n    .all()\n    .map(item => item.json ?? {});\n\nconst replies =\n  matcherItems.filter(\n    item =>\n      item.reply_found === true\n  );\n\nconst checkedAt =\n  new Date().toISOString();\n\n\nif (!replies.length) {\n  const result =\n    matcherItems[0] ?? {};\n\n  return [\n    {\n      json: {\n        success: true,\n\n        monitor_status:\n          'NO_REPLIES_FOUND',\n\n        reply_count:\n          0,\n\n        monitored_campaign_count:\n          Number(\n            result.monitored_campaign_count ??\n            0\n          ),\n\n        gmail_message_count:\n          Number(\n            result.gmail_message_count ??\n            0\n          ),\n\n        message:\n          clean(result.message) ||\n          'No replies were found.',\n\n        monitor_checked_at:\n          checkedAt,\n      },\n    },\n  ];\n}\n\n\nreturn [\n  {\n    json: {\n      success: true,\n\n      monitor_status:\n        'REPLIES_UPDATED',\n\n      reply_count:\n        replies.length,\n\n      updated_opportunity_keys:\n        replies.map(\n          reply =>\n            clean(\n              reply.opportunity_key\n            )\n        ),\n\n      replies:\n        replies.map(\n          reply => ({\n            opportunity_key:\n              clean(\n                reply.opportunity_key\n              ),\n\n            company_name:\n              clean(\n                reply.company_name\n              ),\n\n            contact_name:\n              clean(\n                reply.contact_name\n              ),\n\n            reply_from:\n              clean(\n                reply.reply_from\n              ),\n\n            reply_subject:\n              clean(\n                reply.reply_subject\n              ),\n\n            reply_received_at:\n              clean(\n                reply.reply_received_at\n              ),\n          })\n        ),\n\n      message:\n        `${replies.length} campaign reply` +\n        `${replies.length === 1 ? '' : 'ies'} ` +\n        'detected and recorded.',\n\n      monitor_checked_at:\n        checkedAt,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        112
+      ],
+      "id": "b0d2c993-fb82-4b12-90c4-4897449e07b4",
+      "name": "Return Reply Monitor Result"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Load Outreach Applications": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reply Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reply Search": {
+      "main": [
+        [
+          {
+            "node": "Campaigns to Monitor?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaigns to Monitor?": {
+      "main": [
+        [
+          {
+            "node": "Gmail — Search Incoming Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail — Search Incoming Messages": {
+      "main": [
+        [
+          {
+            "node": "Match Replies to Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Replies to Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Replies Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replies Found?": {
+      "main": [
+        [
+          {
+            "node": "Update Replied Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Reply Monitor Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Replied Campaign": {
+      "main": [
+        []
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Outreach Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

@@ -1,0 +1,833 @@
+{
+  "name": "Scraper Connection Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        32
+      ],
+      "id": "52a93882-c550-4092-bba4-50432d6c5833",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "http://startup-scraper:8000/discover-test",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "country",
+              "value": "All"
+            },
+            {
+              "name": "pages",
+              "value": "3"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -592,
+        160
+      ],
+      "id": "ac1f7c5e-154a-4b5a-8d0f-afca38691087",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "articles",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -416,
+        48
+      ],
+      "id": "7dd21d2b-7f74-4521-8b90-70b616b5acfd",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "url": "http://startup-scraper:8000/article-details",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.article_url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        320,
+        144
+      ],
+      "id": "472df177-92a2-46b0-bc88-48963da94922",
+      "name": "Fetch Article Details",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "852804e0-a096-4114-b1f6-022bc973b5b2",
+              "name": "country",
+              "value": "={{ $('Keep Only New Articles').item.json.country }}",
+              "type": "string"
+            },
+            {
+              "id": "6e443498-92eb-425c-9684-cc938034b728",
+              "name": "source",
+              "value": "={{ $('Keep Only New Articles').item.json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "38c08faf-9562-4e4e-b855-dd8c1940d731",
+              "name": "discovery_status",
+              "value": "={{ $('Keep Only New Articles').item.json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "18c7d168-4c78-4ba0-9964-f0a9732dc5d6",
+              "name": "official_website",
+              "value": "={{ $json.external_links?.[0] || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        752,
+        208
+      ],
+      "id": "573247a6-4b75-44e7-b8ea-38f687df2413",
+      "name": "Prepare Company Analysis"
+    },
+    {
+      "parameters": {
+        "text": "=={{\n`Evaluate this European startup as a potential employer for the following candidate.\n\nCANDIDATE PROFILE:\nBig Data & AI Engineer with experience in Python, SQL, machine learning,\ndata engineering, RAG systems, AI agents, FastAPI, cloud technologies,\nLLM applications and workflow automation.\n\nThe candidate is early-career, based outside the EU, open to relocating\nto Austria, Poland or Bulgaria, and would need employer support for a\nwork permit or visa.\n\nRULES:\n\n- Use only facts explicitly present in the supplied article.\n- Do not invent technologies, vacancies, hiring needs or visa policies.\n- Do not assume that every technical or scientific company needs AI,\n  machine learning or data engineering employees.\n- Clearly separate explicit evidence from reasonable inference.\n- Missing text values must be returned as an empty string: \"\"\n- Never return words such as \"empty\", \"unknown\", \"not mentioned\"\n  or \"not available\" inside fields that should be empty.\n\nSCORING:\n\n- profile_fit_score must be an integer from 0 to 100.\n- 0–29: little connection to the candidate's skills.\n- 30–49: weak or indirect connection.\n- 50–69: plausible fit, but no strong explicit technical evidence.\n- 70–84: strong fit supported by the company's product or technology.\n- 85–100: exceptionally direct match with the candidate's experience.\n\n- Do not give more than 69 unless the article explicitly mentions\n  relevant areas such as AI, machine learning, data infrastructure,\n  data engineering, cloud platforms, software engineering,\n  automation, LLMs or closely related technologies.\n\nFIELDS:\n\n- profile_fit_evidence must contain only explicit article facts.\n- profile_fit_inference may contain cautious reasoning based on those facts.\n- recommended_roles must be a JSON list.\n- Only recommend roles that are realistically connected to the article.\n- visa_support_status must be exactly one of:\n  \"UNKNOWN\", \"POSSIBLE\", or \"EXPLICIT\".\n- Use \"EXPLICIT\" only when visa sponsorship, relocation or work-permit\n  assistance is directly mentioned.\n- research_priority must be exactly:\n  \"HIGH\", \"MEDIUM\", or \"LOW\".\n- confidence_score must be an integer from 0 to 100.\n\nPRIORITY:\n\n- HIGH: profile_fit_score is at least 70 and there is a hiring signal.\n- MEDIUM: profile_fit_score is at least 50, or there is a strong hiring signal.\n- LOW: weak technical fit and no clear relevant hiring signal.\nENTITY CLASSIFICATION:\n\n- entity_type must be exactly one of:\n  \"STARTUP\", \"SCALEUP\", \"VC_FUND\", \"ACCELERATOR\",\n  \"CORPORATE\", or \"OTHER\".\n\n- Classify the organisation receiving or announcing the funding.\n- A venture capital fund raising money for investments is \"VC_FUND\".\n- An accelerator or startup programme is \"ACCELERATOR\".\n- Do not classify a VC fund as a startup merely because the article\n  appears on a startup website.\n\n- entity_type_evidence must contain explicit evidence from the article\n  supporting the classification.\n\nCOUNTRY VERIFICATION:\n\n- verified_company_country must reflect the organisation's actual\n  headquarters or clearly stated primary location in the article.\n- Return only the country name, such as \"Poland\" or \"Germany\".\n- Do not automatically copy the scraped category country.\n- If the actual country cannot be determined, return an empty string.\n\n- country_match_status must be exactly:\n  \"MATCH\", \"MISMATCH\", or \"UNCERTAIN\".\n\n- MATCH means verified_company_country agrees with the scraped country.\n- MISMATCH means the article clearly identifies another country.\n- UNCERTAIN means there is insufficient evidence or the organisation\n  is genuinely multinational without a clear main location.\n\nEMPLOYER AND ECOSYSTEM VALUE:\n\n- direct_employer_priority must be exactly:\n  \"HIGH\", \"MEDIUM\", or \"LOW\".\n\n- For STARTUP and SCALEUP entities, base direct_employer_priority on:\n  profile fit, hiring evidence, company expansion and technical relevance.\n\n- VC_FUND and ACCELERATOR entities should normally have LOW direct\n  employer priority unless the article explicitly suggests a relevant\n  internal technical role.\n\n- ecosystem_value must be exactly:\n  \"HIGH\", \"MEDIUM\", or \"LOW\".\n\n- VC funds and accelerators may have HIGH ecosystem value when they\n  can provide access to relevant portfolio companies, founders,\n  technical teams or hiring networks.\n\n- A startup normally has LOW or MEDIUM ecosystem value unless it clearly\n  operates a large startup community, platform or partner network.\n\n- recommended_action must be a concise practical next step.\n\nExamples:\n- STARTUP: \"Research careers page and identify CTO or Engineering Manager.\"\n- VC_FUND: \"Review portfolio companies and request introductions to relevant founders.\"\n- COUNTRY MISMATCH: \"Store as a German opportunity rather than a Bulgarian company.\"\n\nARTICLE TITLE:\n${$json.title}\n\nCOUNTRY:\n${$json.country}\n\nPUBLICATION DATE:\n${$json.published_at}\n\nPOSSIBLE OFFICIAL WEBSITE:\n${$json.official_website}\n\nEXTERNAL LINKS:\n${JSON.stringify($json.external_links)}\n\nARTICLE:\n${$json.article_text}`\n}}",
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\n  \"company_name\": \"\",\n  \"company_website\": \"\",\n  \"location\": \"\",\n  \"sector\": \"\",\n  \"product_summary\": \"\",\n  \"funding_amount\": \"\",\n  \"funding_stage\": \"\",\n  \"hiring_signal\": false,\n  \"hiring_evidence\": \"\",\n  \"profile_fit_score\": 0,\n  \"profile_fit_evidence\": \"\",\n  \"profile_fit_inference\": \"\",\n  \"recommended_roles\": [],\n  \"outreach_angle\": \"\",\n  \"visa_support_status\": \"UNKNOWN\",\n  \"visa_sponsorship_evidence\": \"\",\n  \"research_priority\": \"LOW\",\n  \"confidence_score\": 0,\n  \"entity_type\": \"OTHER\",\n  \"entity_type_evidence\": \"\",\n  \"verified_company_country\": \"\",\n  \"country_match_status\": \"UNCERTAIN\",\n  \"direct_employer_priority\": \"LOW\",\n  \"ecosystem_value\": \"LOW\",\n  \"recommended_action\": \"\"\n}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.2,
+      "position": [
+        1264,
+        176
+      ],
+      "id": "ee58456c-697e-4d89-b77b-a551e5d2a80d",
+      "name": "Analyze Company Fit",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GCP_PROJECT_ID",
+          "mode": "id",
+          "cachedResultName": "REPLACE_WITH_GCP_PROJECT_ID"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleVertex",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        368
+      ],
+      "id": "4d832026-2d61-456a-a505-9e4e50850894",
+      "name": "Google Vertex Chat Model"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2416b30f-940b-48fb-80f0-0c973cb8e832",
+              "name": "visa_sponsorship_evidence",
+              "value": "={{\n  ['empty', 'unknown', 'not mentioned', 'not available', 'n/a', 'none', '']\n    .includes(String($json.visa_sponsorship_evidence ?? '').trim().toLowerCase())\n    ? null\n    : $json.visa_sponsorship_evidence\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1712,
+        48
+      ],
+      "id": "44e2e878-2e94-4d69-8c87-cd24d9d46a83",
+      "name": "Normalize AI Output"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ai = $json.output ?? {};\nconst article = $('Prepare Company Analysis').item.json;\n\nconst emptyValues = new Set([\n  '',\n  'empty',\n  'unknown',\n  'not mentioned',\n  'not available',\n  'n/a',\n  'none',\n  'null',\n]);\n\nfunction cleanNullable(value) {\n  const text = String(value ?? '').trim();\n\n  return emptyValues.has(text.toLowerCase())\n    ? null\n    : text;\n}\n\nfunction normalizeEnum(value, allowed, fallback) {\n  const normalized = String(value ?? fallback)\n    .trim()\n    .toUpperCase();\n\n  return allowed.includes(normalized)\n    ? normalized\n    : fallback;\n}\nfunction extractDomain(value) {\n  const raw = String(value ?? '')\n    .trim()\n    .toLowerCase();\n\n  if (!raw) {\n    return '';\n  }\n\n  return raw\n    .replace(/^[a-z][a-z0-9+.-]*:\\/\\//i, '')\n    .replace(/^www\\./i, '')\n    .split(/[/?#]/)[0]\n    .replace(/:\\d+$/, '');\n}\n\nconst recommendedRoles = Array.isArray(ai.recommended_roles)\n  ? ai.recommended_roles\n  : ai.recommended_roles\n    ? [String(ai.recommended_roles)]\n    : [];\n\nconst selectedWebsite =\n  ai.company_website ||\n  article.official_website ||\n  '';\n\nconst companyDomain = extractDomain(selectedWebsite);\n\nconst fallbackCompanyKey = String(\n  ai.company_name ?? ''\n)\n  .trim()\n  .toLowerCase()\n  .replace(/[^a-z0-9]+/g, '-')\n  .replace(/^-+|-+$/g, '');\n\nreturn {\n  json: {\n    article_url: article.article_url ?? '',\n    article_title: article.title ?? '',\n    published_at: article.published_at ?? '',\n    country: article.country ?? '',\n    source: article.source ?? '',\n\n    official_website_scraped:\n      article.official_website ?? '',\n\n    company_name: ai.company_name ?? '',\n\n    company_website: selectedWebsite,\n\n    company_domain: companyDomain,\n\n    company_key:\n      companyDomain || fallbackCompanyKey,\n\n    location: ai.location ?? '',\n    sector: ai.sector ?? '',\n    product_summary: ai.product_summary ?? '',\n\n    funding_amount: ai.funding_amount ?? '',\n    funding_stage: ai.funding_stage ?? '',\n\n    hiring_signal: Boolean(ai.hiring_signal),\n    hiring_evidence: ai.hiring_evidence ?? '',\n\n    profile_fit_score: Number(\n      ai.profile_fit_score ?? 0\n    ),\n\n    profile_fit_evidence:\n      ai.profile_fit_evidence ?? '',\n\n    profile_fit_inference:\n      ai.profile_fit_inference ?? '',\n\n    recommended_roles: recommendedRoles,\n    outreach_angle: ai.outreach_angle ?? '',\n\n    visa_support_status: normalizeEnum(\n      ai.visa_support_status,\n      ['UNKNOWN', 'POSSIBLE', 'EXPLICIT'],\n      'UNKNOWN'\n    ),\n\n    visa_sponsorship_evidence:\n      cleanNullable(ai.visa_sponsorship_evidence),\n\n    research_priority: normalizeEnum(\n      ai.research_priority,\n      ['HIGH', 'MEDIUM', 'LOW'],\n      'LOW'\n    ),\n\n    confidence_score: Number(\n      ai.confidence_score ?? 0\n    ),\n\n    entity_type: normalizeEnum(\n      ai.entity_type,\n      [\n        'STARTUP',\n        'SCALEUP',\n        'VC_FUND',\n        'ACCELERATOR',\n        'CORPORATE',\n        'OTHER',\n      ],\n      'OTHER'\n    ),\n\n    entity_type_evidence:\n      ai.entity_type_evidence ?? '',\n\n    verified_company_country:\n      ai.verified_company_country ?? '',\n\n    country_match_status: normalizeEnum(\n      ai.country_match_status,\n      ['MATCH', 'MISMATCH', 'UNCERTAIN'],\n      'UNCERTAIN'\n    ),\n\n    direct_employer_priority: normalizeEnum(\n      ai.direct_employer_priority,\n      ['HIGH', 'MEDIUM', 'LOW'],\n      'LOW'\n    ),\n\n    ecosystem_value: normalizeEnum(\n      ai.ecosystem_value,\n      ['HIGH', 'MEDIUM', 'LOW'],\n      'LOW'\n    ),\n\n    recommended_action:\n      ai.recommended_action ?? '',\n\n    analysis_version: 2,\n    pipeline_status: 'RESEARCHED',\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        272
+      ],
+      "id": "fb7dd620-de99-4b57-aeff-ebf72f5be0c9",
+      "name": "Build Company Record"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3ca87350-82df-4b89-96ce-f33d2316b221",
+              "name": "recommended_roles",
+              "value": "={{\n  Array.isArray($json.recommended_roles)\n    ? $json.recommended_roles.join(' | ')\n    : String($json.recommended_roles ?? '')\n}}",
+              "type": "string"
+            },
+            {
+              "id": "92bfb51a-7f4b-437a-bac4-4ba4b1171f85",
+              "name": "last_updated",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1712,
+        496
+      ],
+      "id": "d4fad96f-6530-4cd9-90b1-f96b615d71ae",
+      "name": "Prepare Sheet Row"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1905939676,
+          "mode": "list",
+          "cachedResultName": "Companies"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "article_url"
+          ],
+          "schema": [
+            {
+              "id": "article_url",
+              "displayName": "article_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "article_title",
+              "displayName": "article_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "published_at",
+              "displayName": "published_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "official_website_scraped",
+              "displayName": "official_website_scraped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_website",
+              "displayName": "company_website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sector",
+              "displayName": "sector",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "product_summary",
+              "displayName": "product_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "funding_amount",
+              "displayName": "funding_amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "funding_stage",
+              "displayName": "funding_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_signal",
+              "displayName": "hiring_signal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_evidence",
+              "displayName": "hiring_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "profile_fit_score",
+              "displayName": "profile_fit_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "profile_fit_evidence",
+              "displayName": "profile_fit_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "profile_fit_inference",
+              "displayName": "profile_fit_inference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "recommended_roles",
+              "displayName": "recommended_roles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_sponsorship_evidence",
+              "displayName": "visa_sponsorship_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "research_priority",
+              "displayName": "research_priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence_score",
+              "displayName": "confidence_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pipeline_status",
+              "displayName": "pipeline_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1712,
+        688
+      ],
+      "id": "262fc437-f502-4f89-963e-e7a5357da4d3",
+      "name": "Save Company"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "article_url",
+        "joinMode": "enrichInput1",
+        "options": {
+          "multipleMatches": "first"
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -160,
+        192
+      ],
+      "id": "6ccd87a9-e2d3-4e83-bd82-857bf1c6f15c",
+      "name": "Merge Article With Lookup"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -864,
+        304
+      ],
+      "id": "a9887032-0415-4fb7-bf92-492ef6b96c5b",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1905939676,
+          "mode": "list",
+          "cachedResultName": "Companies"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -384,
+        256
+      ],
+      "id": "c24bb2cc-642f-4844-9035-c310b7c41ca1",
+      "name": "Load Existing Articles",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeUrl(value) {\n  const raw = String(value ?? '').trim();\n\n  if (!raw) {\n    return '';\n  }\n\n  try {\n    const url = new URL(raw);\n\n    // Ignore fragments/query strings for deduplication.\n    url.hash = '';\n    url.search = '';\n\n    return (\n      url.origin +\n      url.pathname.replace(/\\/+$/, '')\n    ).toLowerCase();\n  } catch {\n    return raw\n      .replace(/[?#].*$/, '')\n      .replace(/\\/+$/, '')\n      .toLowerCase();\n  }\n}\n\n\n// URLs already stored in Companies\nconst existingUrls = new Set(\n  $('Load Existing Articles')\n    .all()\n    .map(item =>\n      normalizeUrl(item.json.article_url)\n    )\n    .filter(Boolean)\n);\n\n\n// Also protect against duplicates inside\n// the CURRENT discovery execution.\nconst seenThisRun = new Set();\n\nconst output = [];\n\nfor (const item of $input.all()) {\n  const url = normalizeUrl(\n    item.json.article_url\n  );\n\n  if (!url) {\n    continue;\n  }\n\n  // Already processed previously\n  if (existingUrls.has(url)) {\n    continue;\n  }\n\n  // Duplicate returned during this run\n  if (seenThisRun.has(url)) {\n    continue;\n  }\n\n  seenThisRun.add(url);\n\n  output.push({\n    json: {\n      ...item.json,\n    },\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        176
+      ],
+      "id": "ce4fde53-d5eb-4bc8-a6a1-584f4729f7c3",
+      "name": "Keep Only New Articles"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cutoff = new Date();\ncutoff.setMonth(cutoff.getMonth() - 24);\n\nreturn $input.all().filter(item => {\n  const publishedAt = String(\n    item.json.published_at ?? ''\n  ).trim();\n\n  if (!publishedAt) {\n    // Keep it if date extraction failed.\n    // Better to inspect it later than silently lose it.\n    return true;\n  }\n\n  const publishedDate = new Date(publishedAt);\n\n  if (Number.isNaN(publishedDate.getTime())) {\n    return true;\n  }\n\n  return publishedDate >= cutoff;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        112
+      ],
+      "id": "3789cb2b-09b2-40d1-8df9-396cb5c9ca86",
+      "name": "Keep Recent Articles"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1024,
+        96
+      ],
+      "id": "2f82391c-a641-4525-82e8-204a73b4d0cc",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        400
+      ],
+      "id": "c266dee3-3860-4445-97db-007a6e94f5b0",
+      "name": "Wait",
+      "webhookId": "6ddb7be7-cbc9-5837-b37d-33475eee7699"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Existing Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Merge Article With Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Article Details": {
+      "main": [
+        [
+          {
+            "node": "Keep Recent Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Company Analysis": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Vertex Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analyze Company Fit",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Company Fit": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize AI Output": {
+      "main": [
+        [
+          {
+            "node": "Build Company Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Company Record": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheet Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sheet Row": {
+      "main": [
+        [
+          {
+            "node": "Save Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Article With Lookup": {
+      "main": [
+        [
+          {
+            "node": "Keep Only New Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Articles": {
+      "main": [
+        [
+          {
+            "node": "Merge Article With Lookup",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Keep Only New Articles": {
+      "main": [
+        [
+          {
+            "node": "Fetch Article Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Recent Articles": {
+      "main": [
+        [
+          {
+            "node": "Prepare Company Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Normalize AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze Company Fit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 900
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

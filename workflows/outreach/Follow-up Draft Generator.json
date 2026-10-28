@@ -1,0 +1,939 @@
+{
+  "name": "Follow-up Draft Generator",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        -176
+      ],
+      "id": "4fa20faf-1cd2-4f0f-a137-42d04485cb46",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -432,
+        16
+      ],
+      "id": "59c5db19-65c1-40af-8011-e2c5b52e27f0",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -208,
+        -80
+      ],
+      "id": "347229f5-4cca-4cfc-9f05-c2f61447bcf5",
+      "name": "Load Outreach Applications"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean = value =>\n  String(value ?? '').trim();\n\nconst upper = value =>\n  clean(value).toUpperCase();\n\nconst rows = $input\n  .all()\n  .map(item => item.json ?? {})\n  .filter(\n    row => clean(row.opportunity_key)\n  );\n\n\nfunction normalizeDomain(value) {\n  let domain =\n    clean(value).toLowerCase();\n\n  if (!domain) {\n    return '';\n  }\n\n  return domain\n    .replace(/^https?:\\/\\//, '')\n    .split('/')[0]\n    .split('?')[0]\n    .split('#')[0]\n    .replace(/^www\\./, '')\n    .replace(/\\.$/, '');\n}\n\n\nfunction normalizeEmail(value) {\n  return clean(value).toLowerCase();\n}\n\n\nfunction normalizeLinkedIn(value) {\n  return clean(value)\n    .toLowerCase()\n    .split('?')[0]\n    .split('#')[0]\n    .replace(/\\/+$/, '');\n}\n\n\nfunction normalizeCompanyName(value) {\n  return clean(value)\n    .toLowerCase()\n    .replace(/\\s+/g, ' ');\n}\n\n\nfunction sharesCampaignIdentity(\n  first,\n  second,\n) {\n  const firstDomain =\n    normalizeDomain(\n      first.company_domain\n    );\n\n  const secondDomain =\n    normalizeDomain(\n      second.company_domain\n    );\n\n  if (\n    firstDomain &&\n    secondDomain &&\n    firstDomain === secondDomain\n  ) {\n    return true;\n  }\n\n\n  const firstEmail =\n    normalizeEmail(\n      first.contact_email\n    );\n\n  const secondEmail =\n    normalizeEmail(\n      second.contact_email\n    );\n\n  if (\n    firstEmail &&\n    secondEmail &&\n    firstEmail === secondEmail\n  ) {\n    return true;\n  }\n\n\n  const firstLinkedIn =\n    normalizeLinkedIn(\n      first.contact_linkedin_url\n    );\n\n  const secondLinkedIn =\n    normalizeLinkedIn(\n      second.contact_linkedin_url\n    );\n\n  if (\n    firstLinkedIn &&\n    secondLinkedIn &&\n    firstLinkedIn === secondLinkedIn\n  ) {\n    return true;\n  }\n\n\n  if (\n    !firstDomain &&\n    !secondDomain\n  ) {\n    const firstCompany =\n      normalizeCompanyName(\n        first.company_name\n      );\n\n    const secondCompany =\n      normalizeCompanyName(\n        second.company_name\n      );\n\n    if (\n      firstCompany &&\n      secondCompany &&\n      firstCompany === secondCompany\n    ) {\n      return true;\n    }\n  }\n\n  return false;\n}\n\n\nfunction campaignRank(row) {\n  const outreachStatus =\n    upper(row.outreach_status);\n\n  const researchStatus =\n    upper(\n      row.contact_research_status\n    );\n\n  const approvalStatus =\n    upper(row.outreach_approval);\n\n  const sentAt =\n    clean(row.sent_at);\n\n\n  if (\n    sentAt ||\n    [\n      'SENT',\n      'REPLIED',\n      'FOLLOW_UP_DUE',\n    ].includes(outreachStatus)\n  ) {\n    return 500;\n  }\n\n\n  if (\n    approvalStatus === 'APPROVED' ||\n    outreachStatus === 'APPROVED'\n  ) {\n    return 400;\n  }\n\n\n  if (\n    outreachStatus === 'DRAFT_READY'\n  ) {\n    return 300;\n  }\n\n\n  if (\n    researchStatus === 'COMPLETED'\n  ) {\n    return 200;\n  }\n\n\n  if (\n    researchStatus === 'IN_PROGRESS'\n  ) {\n    return 100;\n  }\n\n\n  return 0;\n}\n\n\nfunction isCanonicalCampaign(row) {\n  const rowKey =\n    clean(row.opportunity_key);\n\n  const relatedCampaigns =\n    rows\n      .filter(candidate =>\n        sharesCampaignIdentity(\n          row,\n          candidate,\n        ) &&\n        campaignRank(candidate) > 0\n      )\n      .sort(\n        (first, second) => {\n          const rankDifference =\n            campaignRank(second) -\n            campaignRank(first);\n\n          if (rankDifference) {\n            return rankDifference;\n          }\n\n          const sentDifference =\n            clean(second.sent_at)\n              .localeCompare(\n                clean(first.sent_at)\n              );\n\n          if (sentDifference) {\n            return sentDifference;\n          }\n\n          return clean(\n            first.opportunity_key\n          ).localeCompare(\n            clean(\n              second.opportunity_key\n            )\n          );\n        },\n      );\n\n  const canonicalKey =\n    clean(\n      relatedCampaigns[0]\n        ?.opportunity_key\n    );\n\n  return (\n    !canonicalKey ||\n    canonicalKey === rowKey\n  );\n}\n\n\nconst today =\n  new Date()\n    .toISOString()\n    .slice(0, 10);\n\nconst dueCampaigns = [];\n\n\nfor (const row of rows) {\n  const opportunityKey =\n    clean(row.opportunity_key);\n\n  const outreachStatus =\n    upper(row.outreach_status);\n\n  const responseStatus =\n    upper(row.response_status) ||\n    'NO_RESPONSE';\n\n  const followUpStatus =\n    upper(row.follow_up_status) ||\n    'NOT_STARTED';\n\n  const followUpDate =\n    clean(row.follow_up_date)\n      .slice(0, 10);\n\n  const sentAt =\n    clean(row.sent_at);\n\n  const gmailThreadId =\n    clean(row.gmail_thread_id);\n\n  const replyDetectedAt =\n    clean(row.reply_detected_at);\n\n  const followUpSentAt =\n    clean(row.follow_up_sent_at);\n\n\n  if (\n    opportunityKey.startsWith('test::')\n  ) {\n    continue;\n  }\n\n  if (outreachStatus !== 'SENT') {\n    continue;\n  }\n\n  if (\n    responseStatus !== 'NO_RESPONSE' ||\n    replyDetectedAt\n  ) {\n    continue;\n  }\n\n  if (\n    !sentAt ||\n    !gmailThreadId ||\n    !followUpDate\n  ) {\n    continue;\n  }\n\n  if (followUpDate > today) {\n    continue;\n  }\n\n  if (\n    followUpSentAt ||\n    followUpStatus === 'SENT'\n  ) {\n    continue;\n  }\n\n  if (\n    ![\n      'NOT_STARTED',\n      'FAILED',\n    ].includes(followUpStatus)\n  ) {\n    continue;\n  }\n\n  if (!isCanonicalCampaign(row)) {\n    continue;\n  }\n\n\n  const daysOverdue =\n    Math.max(\n      0,\n      Math.floor(\n        (\n          new Date(\n            `${today}T00:00:00Z`\n          ).getTime() -\n          new Date(\n            `${followUpDate}T00:00:00Z`\n          ).getTime()\n        ) /\n        (\n          24 *\n          60 *\n          60 *\n          1000\n        )\n      )\n    );\n\n\n  dueCampaigns.push({\n    ...row,\n\n    follow_up_ready:\n      true,\n\n    follow_up_status:\n      'NOT_STARTED',\n\n    follow_up_approval:\n      'PENDING',\n\n    follow_up_date:\n      followUpDate,\n\n    days_overdue:\n      daysOverdue,\n\n    selection_checked_at:\n      new Date().toISOString(),\n  });\n}\n\n\ndueCampaigns.sort(\n  (first, second) =>\n    clean(first.follow_up_date)\n      .localeCompare(\n        clean(second.follow_up_date)\n      )\n);\n\n\nif (!dueCampaigns.length) {\n  return [\n    {\n      json: {\n        follow_up_ready:\n          false,\n\n        due_count:\n          0,\n\n        checked_date:\n          today,\n\n        message:\n          'No follow-up campaigns are currently due.',\n\n        selection_checked_at:\n          new Date().toISOString(),\n      },\n    },\n  ];\n}\n\n\nreturn dueCampaigns.map(\n  campaign => ({\n    json: {\n      ...campaign,\n\n      due_count:\n        dueCampaigns.length,\n\n      checked_date:\n        today,\n\n      message:\n        'Campaign is ready for follow-up draft generation.',\n    },\n  })\n);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        -144
+      ],
+      "id": "5b284d5e-fd36-4842-a571-c898e309052a",
+      "name": "Select Due Follow-ups"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fa919d8d-9d40-4a82-ae1f-5d5e26764631",
+              "leftValue": "={{ $json.follow_up_ready }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        288,
+        -32
+      ],
+      "id": "c0a00691-0bfb-4c32-aef8-3f7c00eea859",
+      "name": "Follow-up Due?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean = value =>\n  String(value ?? '').trim();\n\nconst upper = value =>\n  clean(value).toUpperCase();\n\nconst items = $input\n  .all()\n  .map(item => item.json ?? {});\n\n\nconst savedDrafts =\n  items.filter(item =>\n    upper(item.follow_up_status) ===\n      'DRAFT_READY' &&\n    clean(item.follow_up_draft)\n  );\n\n\nconst failedDrafts =\n  items.filter(item =>\n    upper(item.follow_up_status) ===\n      'FAILED'\n  );\n\n\nif (savedDrafts.length) {\n  return [\n    {\n      json: {\n        success: true,\n\n        follow_up_result:\n          'DRAFTS_SAVED',\n\n        saved_count:\n          savedDrafts.length,\n\n        opportunity_keys:\n          savedDrafts.map(item =>\n            clean(\n              item.opportunity_key\n            )\n          ),\n\n        message:\n          savedDrafts.length === 1\n            ? (\n                '1 follow-up draft generated ' +\n                'and saved for approval.'\n              )\n            : (\n                `${savedDrafts.length} follow-up ` +\n                'drafts generated and saved ' +\n                'for approval.'\n              ),\n\n        checked_at:\n          new Date().toISOString(),\n      },\n    },\n  ];\n}\n\n\nif (failedDrafts.length) {\n  return [\n    {\n      json: {\n        success: false,\n\n        follow_up_result:\n          'DRAFT_VALIDATION_FAILED',\n\n        failed_count:\n          failedDrafts.length,\n\n        failures:\n          failedDrafts.map(item => ({\n            opportunity_key:\n              clean(\n                item.opportunity_key\n              ),\n\n            reasons:\n              Array.isArray(\n                item\n                  .follow_up_draft_validation_reasons\n              )\n                ? item\n                    .follow_up_draft_validation_reasons\n                : [],\n          })),\n\n        message:\n          'One or more generated follow-up ' +\n          'drafts failed validation.',\n\n        checked_at:\n          new Date().toISOString(),\n      },\n    },\n  ];\n}\n\n\nconst first =\n  items[0] ?? {};\n\n\nreturn [\n  {\n    json: {\n      success: true,\n\n      follow_up_result:\n        'NO_DUE_CAMPAIGNS',\n\n      due_count:\n        0,\n\n      message:\n        clean(first.message) ||\n        'No follow-up campaigns are currently due.',\n\n      checked_at:\n        new Date().toISOString(),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        32
+      ],
+      "id": "8d729845-cd24-43ee-abc6-3a1aba6bbf98",
+      "name": "Return Follow-up Result"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You write concise, professional follow-up emails for job outreach.\n\nCreate one follow-up email based only on the campaign information below.\n\nCompany:\n{{ $json.company_name }}\n\nContact name:\n{{ $json.contact_name }}\n\nContext opportunity:\n{{ $json.position_title }}\n\nApplication status:\n{{ $json.application_status }}\n\nOutreach mode:\n{{ $json.outreach_mode }}\n\nOriginal email subject:\n{{ $json.email_subject }}\n\nOriginal email:\n{{ $json.email_draft }}\n\nOriginal email sent at:\n{{ $json.sent_at }}\n\nFollow-up date:\n{{ $json.follow_up_date }}\n\nDays overdue:\n{{ $json.days_overdue }}\n\nRequirements:\n\n- Write between 50 and 120 words.\n- Use two or three short paragraphs.\n- Be polite, confident, natural, and low-pressure.\n- Refer briefly to the previous email without repeating the entire introduction.\n- Ask one clear question about relevant early-career, adjacent, or upcoming opportunities.\n- Do not invent experience, discussions, promises, or personal information.\n- Do not say that the candidate applied unless application_status is APPLIED.\n- For ADJACENT_ROLE or SPECULATIVE outreach, never say “I applied”, “my application”, or similar wording.\n- Do not include a subject line. Return only the email body, starting with the greeting.\n- Do not sound desperate or demanding.\n- Do not use placeholders.\n- End with:\n\nBest regards,\nYOUR_NAME\n\nReturn only the structured output requested by the parser.",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": []
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        592,
+        16
+      ],
+      "id": "29df3b22-b8cb-4177-ac7b-8f4e27831c74",
+      "name": "Generate Follow-up Draft",
+      "executeOnce": false,
+      "retryOnFail": false,
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GCP_PROJECT_ID",
+          "mode": "id",
+          "cachedResultName": "REPLACE_WITH_GCP_PROJECT_ID"
+        },
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleVertex",
+      "typeVersion": 1,
+      "position": [
+        576,
+        176
+      ],
+      "id": "95e29b1e-da22-423c-8e80-90e7fe6ef679",
+      "name": "Google Vertex Chat Model"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"follow_up_draft\": \"Hi Alex,\\n\\nI wanted to briefly follow up on my previous message regarding potential early-career AI or machine-learning opportunities at Example AI Labs. I remain very interested in learning whether there may be a suitable adjacent or upcoming role where my background could be relevant.\\n\\nWould you be open to pointing me toward the appropriate person or opportunity?\\n\\nBest regards,\\nYOUR_NAME\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        736,
+        176
+      ],
+      "id": "0ec45c97-58f0-4249-a505-11078cb5e126",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const source =\n  $json ?? {};\n\nconst clean = value =>\n  String(value ?? '').trim();\n\nconst upper = value =>\n  clean(value).toUpperCase();\n\n\nfunction parseOutput(value) {\n  if (\n    value &&\n    typeof value === 'object'\n  ) {\n    if (\n      value.output &&\n      typeof value.output === 'object'\n    ) {\n      return value.output;\n    }\n\n    return value;\n  }\n\n  const text =\n    clean(value)\n      .replace(/^```json\\s*/i, '')\n      .replace(/^```\\s*/i, '')\n      .replace(/\\s*```$/, '');\n\n  if (!text) {\n    return {};\n  }\n\n  try {\n    return JSON.parse(text);\n  } catch {\n    return {\n      follow_up_draft: text,\n    };\n  }\n}\n\n\nconst parsed =\n  parseOutput(\n    source.output ??\n    source.text ??\n    source.response ??\n    {}\n  );\n\n\nlet followUpDraft =\n  clean(\n    parsed.follow_up_draft ??\n    parsed.email_draft ??\n    parsed.text\n  );\n\n\n/*\n * A threaded Gmail reply does not need a new\n * subject. Remove one if the model added it.\n */\nfollowUpDraft =\n  followUpDraft\n    .replace(\n      /^subject:\\s*[^\\r\\n]+(?:\\r?\\n)+/i,\n      ''\n    )\n    .trim();\n\n\nconst validationReasons = [];\n\nconst words =\n  followUpDraft\n    .split(/\\s+/)\n    .filter(Boolean);\n\n\nconst opportunityKey =\n  clean(\n    source.opportunity_key\n  );\n\nconst applicationStatus =\n  upper(\n    source.application_status\n  );\n\nconst outreachMode =\n  upper(\n    source.outreach_mode\n  );\n\n\nif (!opportunityKey) {\n  validationReasons.push(\n    'The generated draft could not be linked to an opportunity.'\n  );\n}\n\n\nif (!followUpDraft) {\n  validationReasons.push(\n    'The generated follow-up draft is empty.'\n  );\n}\n\n\nif (\n  followUpDraft &&\n  words.length < 50\n) {\n  validationReasons.push(\n    `The follow-up is too short: ${words.length} words.`\n  );\n}\n\n\nif (words.length > 120) {\n  validationReasons.push(\n    `The follow-up is too long: ${words.length} words.`\n  );\n}\n\n\nif (\n  /\\{\\{.*?\\}\\}|<[^<>]+>|\\[(?:name|company|position|date|email)[^\\]]*\\]/i\n    .test(followUpDraft)\n) {\n  validationReasons.push(\n    'The follow-up contains an unresolved placeholder.'\n  );\n}\n\n\nconst falseApplicationClaim =\n  /\\b(?:i\\s+(?:have\\s+)?applied|my application|following up on my application)\\b/i\n    .test(followUpDraft);\n\n\nif (\n  applicationStatus !== 'APPLIED' &&\n  [\n    'ADJACENT_ROLE',\n    'SPECULATIVE',\n  ].includes(outreachMode) &&\n  falseApplicationClaim\n) {\n  validationReasons.push(\n    'The draft falsely claims that an application was submitted.'\n  );\n}\n\n\nif (\n  !/best regards,\\s*yahya menkari/i\n    .test(followUpDraft)\n) {\n  validationReasons.push(\n    'The required sign-off is missing.'\n  );\n}\n\n\nconst now =\n  new Date().toISOString();\n\nconst draftValid =\n  validationReasons.length === 0;\n\n\nreturn {\n  json: {\n    ...source,\n\n    follow_up_draft:\n      followUpDraft,\n\n    follow_up_status:\n      draftValid\n        ? 'DRAFT_READY'\n        : 'FAILED',\n\n    follow_up_approval:\n      'PENDING',\n\n    follow_up_generated_at:\n      now,\n\n    follow_up_draft_valid:\n      draftValid,\n\n    follow_up_draft_word_count:\n      words.length,\n\n    follow_up_draft_validation_reasons:\n      validationReasons,\n\n    last_updated:\n      now,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        -160
+      ],
+      "id": "0830f617-6142-4641-9201-ae5b4400e5d2",
+      "name": "Validate Follow-up Draft"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "dbb00e14-8ef6-4879-93f7-1d410fcbe6e8",
+              "leftValue": "={{ $json.follow_up_draft_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1584,
+        -144
+      ],
+      "id": "beb5e50f-d3ed-4292-be19-3d19e22f8c03",
+      "name": "Draft Valid?"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        944,
+        -144
+      ],
+      "id": "95b824f8-4223-42ce-baf7-fac12faa20fe",
+      "name": "Merge Campaign and Follow-up Draft"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "opportunity_key": "={{ $json.opportunity_key }}",
+            "follow_up_status": "={{ $json.follow_up_status }}",
+            "follow_up_draft": "={{ $json.follow_up_draft }}",
+            "follow_up_generated_at": "={{ $json.follow_up_generated_at }}",
+            "follow_up_approval": "={{ $json.follow_up_approval }}",
+            "last_updated": "={{ $json.last_updated }}"
+          },
+          "matchingColumns": [
+            "opportunity_key"
+          ],
+          "schema": [
+            {
+              "id": "opportunity_key",
+              "displayName": "opportunity_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "position_title",
+              "displayName": "position_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_url",
+              "displayName": "vacancy_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_status",
+              "displayName": "application_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_mode",
+              "displayName": "outreach_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "applied_at",
+              "displayName": "applied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_research_status",
+              "displayName": "contact_research_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_role",
+              "displayName": "contact_role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email",
+              "displayName": "contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email_confidence",
+              "displayName": "contact_email_confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_linkedin_url",
+              "displayName": "contact_linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_channel",
+              "displayName": "outreach_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_draft",
+              "displayName": "outreach_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_approval",
+              "displayName": "outreach_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_status",
+              "displayName": "outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_date",
+              "displayName": "follow_up_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_status",
+              "displayName": "response_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_draft",
+              "displayName": "email_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_connection_note",
+              "displayName": "linkedin_connection_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_message",
+              "displayName": "linkedin_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_final_status",
+              "displayName": "draft_final_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_generated_at",
+              "displayName": "draft_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_file_id",
+              "displayName": "resume_file_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_filename",
+              "displayName": "resume_filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_message_id",
+              "displayName": "gmail_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_thread_id",
+              "displayName": "gmail_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_detected_at",
+              "displayName": "reply_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_message_id",
+              "displayName": "reply_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_from",
+              "displayName": "reply_from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_subject",
+              "displayName": "reply_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reply_snippet",
+              "displayName": "reply_snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_status",
+              "displayName": "follow_up_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_draft",
+              "displayName": "follow_up_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_generated_at",
+              "displayName": "follow_up_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_approval",
+              "displayName": "follow_up_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_approved_at",
+              "displayName": "follow_up_approved_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_sent_at",
+              "displayName": "follow_up_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_message_id",
+              "displayName": "follow_up_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1824,
+        -224
+      ],
+      "id": "fbede204-2a1e-4ddb-beae-9ef832dc53c8",
+      "name": "Save Follow-up Draft"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Load Outreach Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Outreach Applications": {
+      "main": [
+        [
+          {
+            "node": "Select Due Follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Outreach Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Due Follow-ups": {
+      "main": [
+        [
+          {
+            "node": "Follow-up Due?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up Due?": {
+      "main": [
+        [
+          {
+            "node": "Generate Follow-up Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Campaign and Follow-up Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Follow-up Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Follow-up Result": {
+      "main": [
+        []
+      ]
+    },
+    "Google Vertex Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Follow-up Draft",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Follow-up Draft",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Follow-up Draft": {
+      "main": [
+        [
+          {
+            "node": "Merge Campaign and Follow-up Draft",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Validate Follow-up Draft": {
+      "main": [
+        [
+          {
+            "node": "Draft Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Campaign and Follow-up Draft": {
+      "main": [
+        [
+          {
+            "node": "Validate Follow-up Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Valid?": {
+      "main": [
+        [
+          {
+            "node": "Save Follow-up Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Follow-up Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Follow-up Draft": {
+      "main": [
+        [
+          {
+            "node": "Return Follow-up Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

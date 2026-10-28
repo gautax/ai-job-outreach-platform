@@ -1,0 +1,930 @@
+{
+  "name": "Application Queue Builder",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        -96
+      ],
+      "id": "ade44b2d-959b-4809-adfa-535eb86ebd2c",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 365194359,
+          "mode": "list",
+          "cachedResultName": "Company_Qualification"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -160,
+        32
+      ],
+      "id": "da5ab81f-ef8a-4e8d-8991-a88df4f1a89a",
+      "name": "Get row(s) in sheet"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "796e02bc-41ba-4c84-8733-5fb8a1744eff",
+              "leftValue": "={{ String($json.opportunity_type ?? '') }}",
+              "rightValue": "DIRECT_APPLICATION",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "f3b7ff94-91f9-4206-b102-80e6f0154a00",
+              "leftValue": "={{ String($json.qualification_status ?? '') }}",
+              "rightValue": "QUALIFIED",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "84ed76b3-4f12-4180-a672-28447efb5f01",
+              "leftValue": "={{ String($json.relevant_vacancy_urls ?? '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        96,
+        -128
+      ],
+      "id": "8924e001-582b-4b53-826f-2d8e5784658b",
+      "name": "Keep Direct Applications"
+    },
+    {
+      "parameters": {
+        "jsCode": "function toList(value) {\n  if (Array.isArray(value)) {\n    return value\n      .map(item => String(item ?? '').trim())\n      .filter(Boolean);\n  }\n\n  return String(value ?? '')\n    .split(/\\s*\\|\\s*/)\n    .map(item => item.trim())\n    .filter(Boolean);\n}\n\nfunction normalizeVacancyUrl(value) {\n  return String(value ?? '')\n    .trim()\n    .replace(/#.*$/, '')\n    .replace(/\\?.*$/, '')\n    .replace(/\\/+$/, '')\n    .toLowerCase();\n}\n\nfunction titleFromUrl(value) {\n  const url = String(value ?? '');\n\n  const lastPart =\n    url.split('/').filter(Boolean).pop() || 'Untitled position';\n\n  return lastPart\n    .replace(/[-_]+/g, ' ')\n    .replace(/\\b\\w/g, character =>\n      character.toUpperCase()\n    );\n}\n\nconst output = [];\n\nfor (const item of $input.all()) {\n  const company = item.json;\n\n  const vacancyUrls = toList(\n    company.relevant_vacancy_urls\n  );\n\n  const roleTitles = toList(\n    company.relevant_role_titles\n  );\n\n  for (\n    let index = 0;\n    index < vacancyUrls.length;\n    index++\n  ) {\n    const vacancyUrl =\n      vacancyUrls[index];\n\n    const normalizedUrl =\n      normalizeVacancyUrl(vacancyUrl);\n\n    const positionTitle =\n      roleTitles[index] ||\n      titleFromUrl(vacancyUrl);\n\n    const companyKey = String(\n      company.company_key ?? ''\n    ).trim();\n\n    if (!companyKey || !normalizedUrl) {\n      continue;\n    }\n\n    output.push({\n      json: {\n        opportunity_key:\n          `${companyKey}::${normalizedUrl}`,\n        opportunity_type:\n          'DIRECT_APPLICATION',\n\n        company_key:\n          companyKey,\n\n        company_name:\n          company.company_name || '',\n\n        company_domain:\n          company.company_domain || '',\n\n        country:\n          company.verified_company_country ||\n          company.country ||\n          '',\n\n        position_title:\n          positionTitle,\n\n        vacancy_url:\n          vacancyUrl,\n\n        qualification_score:\n          company.qualification_score || 0,\n\n        qualification_reason:\n          company.qualification_reason || '',\n\n        visa_support_status:\n          company.visa_support_status ||\n          'UNKNOWN',\n\n        careers_contact_email:\n          company.careers_contact_email || '',\n\n        outreach_angle:\n          company.outreach_angle || '',\n\n        application_status:\n          'TO_REVIEW',\n\n        applied_at:\n          '',\n\n        contact_research_status:\n          'NOT_STARTED',\n\n        contact_name:\n          '',\n\n        contact_role:\n          '',\n\n        contact_email:\n          '',\n\n        contact_linkedin_url:\n          '',\n\n        outreach_channel:\n          '',\n\n        outreach_draft:\n          '',\n\n        outreach_approval:\n          'PENDING',\n\n        outreach_status:\n          'NOT_STARTED',\n\n        sent_at:\n          '',\n\n        follow_up_date:\n          '',\n\n        response_status:\n          'NO_RESPONSE',\n\n        notes:\n          '',\n\n        last_updated:\n          new Date().toISOString(),\n      },\n    });\n  }\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -128
+      ],
+      "id": "83127a8a-ca83-4111-8186-bb9d8b2b1250",
+      "name": "Create Application Opportunities"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "opportunity_key"
+          ],
+          "schema": [
+            {
+              "id": "opportunity_key",
+              "displayName": "opportunity_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "position_title",
+              "displayName": "position_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_url",
+              "displayName": "vacancy_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_status",
+              "displayName": "application_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_mode",
+              "displayName": "outreach_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "applied_at",
+              "displayName": "applied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_research_status",
+              "displayName": "contact_research_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_role",
+              "displayName": "contact_role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email",
+              "displayName": "contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email_confidence",
+              "displayName": "contact_email_confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contact_linkedin_url",
+              "displayName": "contact_linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_channel",
+              "displayName": "outreach_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_draft",
+              "displayName": "outreach_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_approval",
+              "displayName": "outreach_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_status",
+              "displayName": "outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_date",
+              "displayName": "follow_up_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_status",
+              "displayName": "response_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_draft",
+              "displayName": "email_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "linkedin_connection_note",
+              "displayName": "linkedin_connection_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "linkedin_message",
+              "displayName": "linkedin_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "draft_final_status",
+              "displayName": "draft_final_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "draft_generated_at",
+              "displayName": "draft_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "resume_file_id",
+              "displayName": "resume_file_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "resume_filename",
+              "displayName": "resume_filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gmail_message_id",
+              "displayName": "gmail_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gmail_thread_id",
+              "displayName": "gmail_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_detected_at",
+              "displayName": "reply_detected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_message_id",
+              "displayName": "reply_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_from",
+              "displayName": "reply_from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_subject",
+              "displayName": "reply_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_snippet",
+              "displayName": "reply_snippet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_status",
+              "displayName": "follow_up_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_draft",
+              "displayName": "follow_up_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_generated_at",
+              "displayName": "follow_up_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_approval",
+              "displayName": "follow_up_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_approved_at",
+              "displayName": "follow_up_approved_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_sent_at",
+              "displayName": "follow_up_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_message_id",
+              "displayName": "follow_up_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "opportunity_type",
+              "displayName": "opportunity_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "manual_contact_status",
+              "displayName": "manual_contact_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contact_source",
+              "displayName": "contact_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "can_update_tracker",
+              "displayName": "can_update_tracker",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1584,
+        -48
+      ],
+      "id": "25330a64-2de5-49b6-b750-88d1adff816b",
+      "name": "Save Application Opportunity"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1088,
+        0
+      ],
+      "id": "0613efba-4116-4360-9672-bf97a1c3a7c3",
+      "name": "Load Existing Tracker Rows",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeKey(value) {\n  return String(value ?? '')\n    .trim()\n    .toLowerCase();\n}\n\n\n// Rows already stored in Application_Tracker\nconst existingKeys = new Set(\n  $input\n    .all()\n    .map(item =>\n      normalizeKey(item.json.opportunity_key)\n    )\n    .filter(Boolean)\n);\n\n\n// Opportunities generated during this execution\nconst candidates =\n  $('Merge Opportunity Candidates').all();\n\n\n// Protect against duplicate opportunity keys\n// generated during the SAME execution.\nconst seenThisRun = new Set();\n\nconst newOpportunities = [];\n\nfor (const item of candidates) {\n  const key = normalizeKey(\n    item.json.opportunity_key\n  );\n\n  if (!key) {\n    continue;\n  }\n\n  // Already stored from a previous execution\n  if (existingKeys.has(key)) {\n    continue;\n  }\n\n  // Already accepted earlier in this execution\n  if (seenThisRun.has(key)) {\n    continue;\n  }\n\n  seenThisRun.add(key);\n\n  newOpportunities.push({\n    json: {\n      ...item.json,\n    },\n  });\n}\n\nreturn newOpportunities;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        -80
+      ],
+      "id": "291b562a-a2be-4442-bde6-cc7047dbcfa3",
+      "name": "Keep Only New Opportunities"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4c77cd90-382c-4f72-8d43-1c82dbe56693",
+              "leftValue": "={{ $json.opportunity_type }}",
+              "rightValue": "SPECULATIVE_OUTREACH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "86fa8b52-7882-463d-ace7-582706e4a992",
+              "leftValue": "={{ $json.qualification_status }}",
+              "rightValue": "=QUALIFIED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        80,
+        208
+      ],
+      "id": "a2d896b5-7868-46c0-88ef-12fc6db16dbb",
+      "name": "Keep Speculative Prospects"
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(value) {\n  return String(value ?? '').trim();\n}\n\nconst output = [];\nconst now = new Date().toISOString();\n\nfor (const item of $input.all()) {\n  const company = item.json ?? {};\n\n  const companyKey = clean(\n    company.company_key\n  ).toLowerCase();\n\n  if (!companyKey) {\n    continue;\n  }\n\n  const destinationUrl =\n    clean(company.careers_url) ||\n    clean(company.company_website);\n\n  output.push({\n    json: {\n      opportunity_key:\n        `${companyKey}::speculative`,\n\n      company_key:\n        companyKey,\n\n      company_name:\n        clean(company.company_name),\n\n      company_domain:\n        clean(company.company_domain),\n\n      country:\n        clean(\n          company.verified_company_country\n        ),\n\n      position_title:\n        'Potential AI / Data opportunities',\n\n      // For speculative prospects, this points to\n      // the careers page or company website.\n      vacancy_url:\n        destinationUrl,\n\n      qualification_score:\n        Number(\n          company.qualification_score || 0\n        ),\n\n      qualification_reason:\n        clean(company.qualification_reason),\n\n      visa_support_status:\n        clean(company.visa_support_status) ||\n        'UNKNOWN',\n\n      careers_contact_email:\n        clean(company.careers_contact_email),\n\n      outreach_angle:\n        clean(company.outreach_angle),\n\n      application_status:\n        'TO_REVIEW',\n\n      // It must remain empty until the user\n      // confirms speculative outreach.\n      outreach_mode:\n        '',\n\n      applied_at:\n        '',\n\n      contact_research_status:\n        'NOT_STARTED',\n\n      contact_name:\n        '',\n\n      contact_role:\n        '',\n\n      contact_email:\n        '',\n\n      contact_email_confidence:\n        '',\n\n      contact_linkedin_url:\n        '',\n\n      outreach_channel:\n        '',\n\n      outreach_draft:\n        '',\n\n      outreach_approval:\n        'PENDING',\n\n      outreach_status:\n        'NOT_STARTED',\n\n      sent_at:\n        '',\n\n      follow_up_date:\n        '',\n\n      response_status:\n        'NO_RESPONSE',\n\n      notes:\n        '',\n\n      last_updated:\n        now,\n\n      email_draft:\n        '',\n\n      linkedin_connection_note:\n        '',\n\n      linkedin_message:\n        '',\n\n      draft_final_status:\n        '',\n\n      draft_generated_at:\n        '',\n\n      email_subject:\n        '',\n\n      resume_file_id:\n        '',\n\n      resume_filename:\n        '',\n\n      gmail_message_id:\n        '',\n\n      gmail_thread_id:\n        '',\n\n      reply_detected_at:\n        '',\n\n      reply_message_id:\n        '',\n\n      reply_from:\n        '',\n\n      reply_subject:\n        '',\n\n      reply_snippet:\n        '',\n\n      follow_up_status:\n        '',\n\n      follow_up_draft:\n        '',\n\n      follow_up_generated_at:\n        '',\n\n      follow_up_approval:\n        '',\n\n      follow_up_approved_at:\n        '',\n\n      follow_up_sent_at:\n        '',\n\n      follow_up_message_id:\n        '',\n\n      opportunity_type:\n        'SPECULATIVE_OUTREACH',\n    },\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        208
+      ],
+      "id": "e644d30d-e32e-4452-8cd3-2e22d699b20d",
+      "name": "Create Speculative Opportunities"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        752,
+        64
+      ],
+      "id": "f2565d77-5d88-43fd-9ea2-d7df260af7f4",
+      "name": "Merge Opportunity Candidates"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        176
+      ],
+      "id": "ad265b65-f95c-4a1f-8e3e-b496b3d684ac",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Keep Direct Applications",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Keep Speculative Prospects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Direct Applications": {
+      "main": [
+        [
+          {
+            "node": "Create Application Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Application Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Merge Opportunity Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Tracker Rows": {
+      "main": [
+        [
+          {
+            "node": "Keep Only New Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Only New Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Save Application Opportunity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Speculative Prospects": {
+      "main": [
+        [
+          {
+            "node": "Create Speculative Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Speculative Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Merge Opportunity Candidates",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Opportunity Candidates": {
+      "main": [
+        [
+          {
+            "node": "Load Existing Tracker Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

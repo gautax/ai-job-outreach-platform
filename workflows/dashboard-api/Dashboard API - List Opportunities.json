@@ -1,0 +1,123 @@
+{
+  "name": "Dashboard API - List Opportunities",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "job-dashboard/opportunities",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f76df510-696c-4162-8ee1-82aa85f4a2dc",
+      "name": "Get Dashboard Opportunities",
+      "webhookId": "16dbf7ed-9ebf-5fca-bb5b-732aef03a900"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        0
+      ],
+      "id": "717640be-b721-48b7-b543-15bab90aaa68",
+      "name": "Load Dashboard Opportunities"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input\n  .all()\n  .map(item => item.json ?? {});\n\nfunction cleanText(value) {\n  return String(value ?? '').trim();\n}\n\nfunction upper(value) {\n  return cleanText(value).toUpperCase();\n}\n\nfunction toNumber(value) {\n  const parsed = Number(value);\n  return Number.isFinite(parsed) ? parsed : 0;\n}\n\nconst applicationStatusOrder = {\n  TO_REVIEW: 1,\n  APPLY: 2,\n  APPLIED: 3,\n  SKIPPED: 9,\n};\n\nconst opportunities = rows\n  .filter(row => {\n    const opportunityKey =\n      cleanText(row.opportunity_key);\n\n    return (\n      opportunityKey &&\n      !opportunityKey.startsWith('test::')\n    );\n  })\n  .map(row => {\n    const applicationStatus =\n      upper(row.application_status);\n\n    const outreachMode =\n      upper(row.outreach_mode);\n\n    const opportunityType =\n      upper(row.opportunity_type) ||\n      'DIRECT_APPLICATION';\n\n    const outreachApproval =\n      upper(row.outreach_approval);\n\n    const outreachStatus =\n      upper(row.outreach_status);\n\n    const draftFinalStatus =\n      upper(row.draft_final_status);\n\n    const emailConfidence =\n      upper(row.contact_email_confidence);\n\n    const contactEmail =\n      cleanText(row.contact_email);\n\n    const sentAt =\n      cleanText(row.sent_at);\n\n    const outreachEligible =\n      applicationStatus === 'APPLIED' ||\n      ['ADJACENT_ROLE', 'SPECULATIVE'].includes(\n      outreachMode\n    );\n\n    const canSendEmail =\n      outreachEligible &&\n      outreachApproval === 'APPROVED' &&\n      outreachStatus === 'DRAFT_READY' &&\n      draftFinalStatus === 'READY' &&\n      ['HIGH', 'MEDIUM','USER_VERIFIED',].includes(\n        emailConfidence\n      ) &&\n      Boolean(contactEmail) &&\n      !sentAt;\n\n    return {\n      opportunity_key:\n        cleanText(row.opportunity_key),\n\n      company_key:\n        cleanText(row.company_key),\n\n      company_name:\n        cleanText(row.company_name),\n\n      company_domain:\n        cleanText(row.company_domain),\n\n      country:\n        cleanText(row.country),\n\n      position_title:\n        cleanText(row.position_title),\n\n      vacancy_url:\n        cleanText(row.vacancy_url),\n\n      qualification_score:\n        toNumber(row.qualification_score),\n\n      qualification_reason:\n        cleanText(row.qualification_reason),\n\n      visa_support_status:\n        cleanText(row.visa_support_status),\n\n      outreach_angle:\n        cleanText(row.outreach_angle),\n\n      application_status:\n        applicationStatus || 'TO_REVIEW',\n\n      applied_at:\n        cleanText(row.applied_at),\n\n      contact_research_status:\n        upper(row.contact_research_status),\n\n      manual_contact_status:\n        upper(row.manual_contact_status),\n\n      contact_source:\n        upper(row.contact_source),\n\n      contact_name:\n        cleanText(row.contact_name),\n\n      contact_role:\n        cleanText(row.contact_role),\n\n      contact_email:\n        contactEmail,\n\n      contact_email_confidence:\n        emailConfidence,\n\n      contact_linkedin_url:\n        cleanText(row.contact_linkedin_url),\n\n      outreach_channel:\n        upper(row.outreach_channel),\n\n      outreach_approval:\n        outreachApproval || 'PENDING',\n\n      outreach_status:\n        outreachStatus || 'NOT_STARTED',\n\n      outreach_mode:\n        outreachMode,\n\n      email_subject:\n        cleanText(row.email_subject),\n\n      email_draft:\n        cleanText(row.email_draft),\n\n      linkedin_connection_note:\n        cleanText(\n          row.linkedin_connection_note\n        ),\n\n      linkedin_message:\n        cleanText(row.linkedin_message),\n\n      draft_final_status:\n        draftFinalStatus,\n\n      draft_generated_at:\n        cleanText(row.draft_generated_at),\n\n      sent_at:\n        sentAt,\n\n      follow_up_date:\n        cleanText(row.follow_up_date),\n\n      response_status:\n        upper(row.response_status),\n\n      follow_up_status:\n        upper(row.follow_up_status),\n\n      follow_up_draft:\n        cleanText(row.follow_up_draft),\n      \n      follow_up_generated_at:\n        cleanText(row.follow_up_generated_at),\n      \n      follow_up_approval:\n        upper(row.follow_up_approval),\n      \n      follow_up_approved_at:\n        cleanText(row.follow_up_approved_at),\n      \n      follow_up_sent_at:\n        cleanText(row.follow_up_sent_at),\n      \n      follow_up_message_id:\n        cleanText(row.follow_up_message_id),\n            \n      gmail_message_id:\n        cleanText(row.gmail_message_id),\n\n      gmail_thread_id:\n        cleanText(row.gmail_thread_id),\n\n      reply_detected_at:\n        cleanText(row.reply_detected_at),\n\n      reply_message_id:\n        cleanText(row.reply_message_id),\n      \n      reply_from:\n        cleanText(row.reply_from),\n      \n      reply_subject:\n        cleanText(row.reply_subject),\n      \n      reply_snippet:\n        cleanText(row.reply_snippet),\n\n      notes:\n        cleanText(row.notes),\n\n      last_updated:\n        cleanText(row.last_updated),\n\n      can_send_email:\n        canSendEmail,\n\n      has_draft:\n        Boolean(\n          cleanText(row.email_draft) ||\n          cleanText(row.linkedin_message)\n        ),\n\n      has_contact:\n        Boolean(\n          contactEmail ||\n          cleanText(row.contact_linkedin_url)\n        ),\n\n      opportunity_type:\n        opportunityType,\n    };\n  })\n  .sort((first, second) => {\n    const firstStatusOrder =\n      applicationStatusOrder[\n        first.application_status\n      ] ?? 5;\n\n    const secondStatusOrder =\n      applicationStatusOrder[\n        second.application_status\n      ] ?? 5;\n\n    if (firstStatusOrder !== secondStatusOrder) {\n      return firstStatusOrder - secondStatusOrder;\n    }\n\n    return (\n      second.qualification_score -\n      first.qualification_score\n    );\n  });\n\nreturn [\n  {\n    json: {\n      success: true,\n\n      count:\n        opportunities.length,\n\n      generated_at:\n        new Date().toISOString(),\n\n      summary: {\n        to_review:\n          opportunities.filter(\n            item =>\n              item.application_status ===\n              'TO_REVIEW'\n          ).length,\n\n        applied:\n          opportunities.filter(\n            item =>\n              item.application_status ===\n              'APPLIED'\n          ).length,\n\n        skipped:\n          opportunities.filter(\n            item =>\n              item.application_status ===\n              'SKIPPED'\n          ).length,\n\n        drafts_ready:\n          opportunities.filter(\n            item => item.has_draft\n          ).length,\n\n        emails_sent:\n          opportunities.filter(\n            item => Boolean(item.sent_at)\n          ).length,\n      },\n\n      opportunities,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "f8a0389e-4521-46a7-8be1-1e73150df467",
+      "name": "Prepare Dashboard Response"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        0
+      ],
+      "id": "c48bd768-44c7-4497-be1a-f8c7a2c6e3c9",
+      "name": "Return Dashboard Opportunities"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Dashboard Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Load Dashboard Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Dashboard Opportunities": {
+      "main": [
+        [
+          {
+            "node": "Prepare Dashboard Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Dashboard Response": {
+      "main": [
+        [
+          {
+            "node": "Return Dashboard Opportunities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

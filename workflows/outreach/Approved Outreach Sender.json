@@ -1,0 +1,840 @@
+{
+  "name": "Approved Outreach Sender",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -944,
+        -32
+      ],
+      "id": "35a09ba4-4c3a-4ee3-88a6-2723f857e15a",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Select Sender Application').first().json.resume_file_id }}",
+          "mode": "id"
+        },
+        "options": {
+          "binaryPropertyName": "resume",
+          "fileName": "={{ $json.resume_filename }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "1738380f-0963-42c5-b7fb-835e7c28098a",
+      "name": "Download file"
+    },
+    {
+      "parameters": {
+        "jsCode": "const application =\n  $('Select Sender Application')\n    .first()?.json ?? {};\n\nconst downloadedItem =\n  $input.first() ?? {};\n\nconst binary =\n  downloadedItem.binary ?? {};\n\nconst resumeBinary =\n  binary.resume;\n\nfunction cleanText(value) {\n  return String(value ?? '').trim();\n}\n\nfunction upper(value) {\n  return cleanText(value).toUpperCase();\n}\n\nconst blockingReasons = [];\n\nconst applicationStatus =\n  upper(application.application_status);\n\nconst outreachMode =\n  upper(application.outreach_mode);\n\nconst duplicateCampaign =\n  application.duplicate_campaign === true ||\n  upper(\n    application.duplicate_campaign\n  ) === 'TRUE';\n\nconst outreachApproval =\n  upper(application.outreach_approval);\n\nconst outreachStatus =\n  upper(application.outreach_status);\n\nconst draftFinalStatus =\n  upper(application.draft_final_status);\n\nconst contactEmail =\n  cleanText(application.contact_email);\n\nconst emailConfidence =\n  upper(\n    application.contact_email_confidence ??\n    application.email_confidence\n  );\n\nconst emailSubject =\n  cleanText(\n    application.email_subject ||\n    application['email_subject ']\n  );\n\nconst emailBody =\n  cleanText(application.email_draft);\n\nconst sentAt =\n  cleanText(application.sent_at);\n\nconst resumeFileId =\n  cleanText(application.resume_file_id);\n\nconst resumeFilename =\n  cleanText(application.resume_filename);\n\n/*\nApplication and approval checks\n*/\nconst eligibleForOutreach =\n  applicationStatus === 'APPLIED' ||\n  outreachMode === 'ADJACENT_ROLE' ||\n  outreachMode === 'SPECULATIVE';\n\nif (duplicateCampaign) {\n  blockingReasons.push(\n    'This opportunity is covered by an existing ' +\n    'company outreach campaign.'\n  );\n\n  const coveredByKey =\n    cleanText(\n      application\n        .covered_by_opportunity_key\n    );\n\n  const coveredByStatus =\n    upper(\n      application.covered_by_status\n    );\n\n  if (coveredByKey) {\n    blockingReasons.push(\n      `Canonical campaign: ${coveredByKey}.`\n    );\n  }\n\n  if (coveredByStatus) {\n    blockingReasons.push(\n      `Canonical campaign status: ${coveredByStatus}.`\n    );\n  }\n}\n\nif (!eligibleForOutreach) {\n  blockingReasons.push(\n    'Outreach requires an APPLIED application or an ' +\n    'explicit ADJACENT_ROLE or SPECULATIVE strategy.'\n  );\n}\n\nif (outreachApproval !== 'APPROVED') {\n  blockingReasons.push(\n    `Outreach approval is ${outreachApproval || 'EMPTY'}; expected APPROVED.`\n  );\n}\n\nif (outreachStatus !== 'DRAFT_READY') {\n  blockingReasons.push(\n    `Outreach status is ${outreachStatus || 'EMPTY'}; expected DRAFT_READY.`\n  );\n}\n\nif (draftFinalStatus !== 'READY') {\n  blockingReasons.push(\n    `Draft final status is ${draftFinalStatus || 'EMPTY'}; expected READY.`\n  );\n}\n\n/*\nRecipient and message checks\n*/\nif (\n  !contactEmail ||\n  !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contactEmail)\n) {\n  blockingReasons.push(\n    'A valid contact email is required.'\n  );\n}\n\nif (\n  ![\n    'HIGH',\n    'MEDIUM',\n    'USER_VERIFIED',\n  ].includes(emailConfidence)\n) {\n  blockingReasons.push(\n    `Email confidence is ${emailConfidence || 'EMPTY'}; ` +\n    'expected HIGH, MEDIUM, or USER_VERIFIED.'\n  );\n}\n\nif (!emailSubject) {\n  blockingReasons.push(\n    'Email subject is empty.'\n  );\n}\n\nif (!emailBody) {\n  blockingReasons.push(\n    'Email draft is empty.'\n  );\n}\n\n/*\nDuplicate-send protection\n*/\nif (sentAt) {\n  blockingReasons.push(\n    `This outreach was already sent at ${sentAt}.`\n  );\n}\n\n/*\nResume checks\n*/\nif (!resumeFileId) {\n  blockingReasons.push(\n    'Resume Google Drive file ID is missing.'\n  );\n}\n\nif (!resumeFilename) {\n  blockingReasons.push(\n    'Resume filename is missing.'\n  );\n}\n\nif (!resumeBinary) {\n  blockingReasons.push(\n    'The resume binary field \"resume\" is missing.'\n  );\n} else {\n  const mimeType =\n    cleanText(resumeBinary.mimeType);\n\n  const fileName =\n    cleanText(resumeBinary.fileName);\n\n  if (mimeType !== 'application/pdf') {\n    blockingReasons.push(\n      `Resume MIME type is ${mimeType || 'EMPTY'}; expected application/pdf.`\n    );\n  }\n\n  if (!fileName.toLowerCase().endsWith('.pdf')) {\n    blockingReasons.push(\n      'The downloaded resume filename does not end in .pdf.'\n    );\n  }\n}\n\nconst sendGateStatus =\n  blockingReasons.length === 0\n    ? 'AUTHORIZED'\n    : 'BLOCKED';\n\nreturn [\n  {\n    json: {\n      ...application,\n\n      email_subject:\n        emailSubject,\n\n      contact_email:\n        contactEmail,\n\n      contact_email_confidence:\n        emailConfidence,\n\n      send_gate_status:\n        sendGateStatus,\n\n      send_gate_blocking_reasons:\n        blockingReasons,\n      \n      application_status:\n        applicationStatus,\n\n      outreach_mode:\n        outreachMode,\n\n      duplicate_campaign:\n        duplicateCampaign,\n\n      send_gate_checked_at:\n        new Date().toISOString(),\n    },\n\n    /*\n    Preserve the downloaded PDF for the Gmail node.\n    */\n    binary,\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        16
+      ],
+      "id": "f4bb1ba7-5e97-461d-baf0-631a42ba20e7",
+      "name": "Validate Email Send Gate"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b57e7e04-6b75-45dc-b550-12c094eeaf41",
+              "leftValue": "={{ $json.send_gate_status === 'AUTHORIZED' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        48
+      ],
+      "id": "57b26ee1-6f59-40cb-a8ae-44046fdedb30",
+      "name": "Email Authorized to Send?"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.contact_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ String($json.email_draft ?? '').replace(/\\\\n/g, '\\n') }}",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "resume"
+              }
+            ]
+          },
+          "senderName": "YOUR_NAME"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1024,
+        -80
+      ],
+      "id": "5ca4c60e-6c71-4abc-85cb-dc4fa6eb66e0",
+      "name": "Send Approved Outreach Email",
+      "webhookId": "9cf6bb7e-41ee-57a1-80db-bae522b620c3"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "opportunity_key": "={{ $json.opportunity_key }}",
+            "outreach_status": "={{ $json.outreach_status }}",
+            "sent_at": "={{ $json.sent_at }}",
+            "follow_up_date": "={{ $json.follow_up_date }}",
+            "response_status": "={{ $json.response_status }}\n",
+            "last_updated": "={{ $json.last_updated }}",
+            "gmail_message_id": "={{ $json.gmail_message_id }}\n",
+            "gmail_thread_id": "={{ $json.gmail_thread_id }}",
+            "outreach_approval": "={{ $json.outreach_approval }}"
+          },
+          "matchingColumns": [
+            "opportunity_key"
+          ],
+          "schema": [
+            {
+              "id": "opportunity_key",
+              "displayName": "opportunity_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "country",
+              "displayName": "country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "position_title",
+              "displayName": "position_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_url",
+              "displayName": "vacancy_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_status",
+              "displayName": "application_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_mode",
+              "displayName": "outreach_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "applied_at",
+              "displayName": "applied_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_research_status",
+              "displayName": "contact_research_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_role",
+              "displayName": "contact_role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email",
+              "displayName": "contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_email_confidence",
+              "displayName": "contact_email_confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contact_linkedin_url",
+              "displayName": "contact_linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_channel",
+              "displayName": "outreach_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_draft",
+              "displayName": "outreach_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_approval",
+              "displayName": "outreach_approval",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outreach_status",
+              "displayName": "outreach_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_up_date",
+              "displayName": "follow_up_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "response_status",
+              "displayName": "response_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_updated",
+              "displayName": "last_updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_draft",
+              "displayName": "email_draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_connection_note",
+              "displayName": "linkedin_connection_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_message",
+              "displayName": "linkedin_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_final_status",
+              "displayName": "draft_final_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft_generated_at",
+              "displayName": "draft_generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_file_id",
+              "displayName": "resume_file_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resume_filename",
+              "displayName": "resume_filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_message_id",
+              "displayName": "gmail_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gmail_thread_id",
+              "displayName": "gmail_thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1456,
+        -96
+      ],
+      "id": "9d8791b3-4d50-4782-9592-5ee59e8acad9",
+      "name": "Mark Outreach Email Sent"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -944,
+        288
+      ],
+      "id": "3b600736-a1da-4e0f-bb9d-59062ea3cb85",
+      "name": "Triggered from Dashboard"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming =\n  $input.first()?.json ?? {};\n\nconst clean = value =>\n  String(value ?? '').trim();\n\nconst opportunityKey =\n  clean(\n    incoming.opportunity_key ??\n    incoming.body?.opportunity_key\n  );\n\nreturn [\n  {\n    json: {\n      requested_opportunity_key:\n        opportunityKey,\n\n      sender_trigger_source:\n        opportunityKey\n          ? 'DASHBOARD'\n          : 'MANUAL',\n\n      sender_request_received_at:\n        new Date().toISOString(),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        128
+      ],
+      "id": "4a83fdff-9434-4380-a149-93e9eacc1986",
+      "name": "Normalize Sender Request"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 253884610,
+          "mode": "list",
+          "cachedResultName": "Application_Tracker"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -352,
+        112
+      ],
+      "id": "71ac5e5e-986e-49f7-9b3e-1b5342c47ba6",
+      "name": "Load Sender Applications",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const request =\n  $('Normalize Sender Request')\n    .first()\n    .json ?? {};\n\nconst clean = value =>\n  String(value ?? '').trim();\n\nconst upper = value =>\n  clean(value).toUpperCase();\n\nconst requestedKey =\n  clean(\n    request.requested_opportunity_key\n  );\n\nconst rows = $input\n  .all()\n  .map(item => item.json ?? {})\n  .filter(\n    row =>\n      clean(row.opportunity_key)\n  );\n\n\nfunction blocked(\n  message,\n  reasons = [],\n  extra = {},\n) {\n  return [\n    {\n      json: {\n        sender_selection_ready: false,\n        success: false,\n        send_status: 'BLOCKED',\n\n        message,\n\n        opportunity_key:\n          requestedKey,\n\n        requested_opportunity_key:\n          requestedKey,\n\n        send_gate_blocking_reasons:\n          reasons,\n\n        sender_selection_checked_at:\n          new Date().toISOString(),\n\n        ...extra,\n      },\n    },\n  ];\n}\n\n\nfunction normalizeDomain(value) {\n  let domain =\n    clean(value).toLowerCase();\n\n  if (!domain) {\n    return '';\n  }\n\n  return domain\n    .replace(/^https?:\\/\\//, '')\n    .split('/')[0]\n    .split('?')[0]\n    .split('#')[0]\n    .replace(/^www\\./, '')\n    .replace(/\\.$/, '');\n}\n\n\nfunction normalizeEmail(value) {\n  return clean(value).toLowerCase();\n}\n\n\nfunction normalizeLinkedIn(value) {\n  return clean(value)\n    .toLowerCase()\n    .split('?')[0]\n    .split('#')[0]\n    .replace(/\\/+$/, '');\n}\n\n\nfunction normalizeCompanyName(value) {\n  return clean(value)\n    .toLowerCase()\n    .replace(/\\s+/g, ' ');\n}\n\n\nfunction sharesCampaignIdentity(\n  first,\n  second,\n) {\n  const firstDomain =\n    normalizeDomain(\n      first.company_domain\n    );\n\n  const secondDomain =\n    normalizeDomain(\n      second.company_domain\n    );\n\n  if (\n    firstDomain &&\n    secondDomain &&\n    firstDomain === secondDomain\n  ) {\n    return true;\n  }\n\n\n  const firstEmail =\n    normalizeEmail(\n      first.contact_email\n    );\n\n  const secondEmail =\n    normalizeEmail(\n      second.contact_email\n    );\n\n  if (\n    firstEmail &&\n    secondEmail &&\n    firstEmail === secondEmail\n  ) {\n    return true;\n  }\n\n\n  const firstLinkedIn =\n    normalizeLinkedIn(\n      first.contact_linkedin_url\n    );\n\n  const secondLinkedIn =\n    normalizeLinkedIn(\n      second.contact_linkedin_url\n    );\n\n  if (\n    firstLinkedIn &&\n    secondLinkedIn &&\n    firstLinkedIn === secondLinkedIn\n  ) {\n    return true;\n  }\n\n\n  /*\n   * Company name is only a fallback when\n   * neither row has a usable domain.\n   */\n  if (\n    !firstDomain &&\n    !secondDomain\n  ) {\n    const firstCompany =\n      normalizeCompanyName(\n        first.company_name\n      );\n\n    const secondCompany =\n      normalizeCompanyName(\n        second.company_name\n      );\n\n    if (\n      firstCompany &&\n      secondCompany &&\n      firstCompany === secondCompany\n    ) {\n      return true;\n    }\n  }\n\n  return false;\n}\n\n\nfunction campaignRank(candidate) {\n  const outreachStatus =\n    upper(candidate.outreach_status);\n\n  const researchStatus =\n    upper(\n      candidate.contact_research_status\n    );\n\n  const approvalStatus =\n    upper(\n      candidate.outreach_approval\n    );\n\n  const sentAt =\n    clean(candidate.sent_at);\n\n\n  if (\n    sentAt ||\n    [\n      'SENT',\n      'REPLIED',\n      'FOLLOW_UP_DUE',\n    ].includes(outreachStatus)\n  ) {\n    return 500;\n  }\n\n\n  if (\n    approvalStatus === 'APPROVED' ||\n    outreachStatus === 'APPROVED'\n  ) {\n    return 400;\n  }\n\n\n  if (\n    outreachStatus === 'DRAFT_READY'\n  ) {\n    return 300;\n  }\n\n\n  if (\n    researchStatus === 'COMPLETED'\n  ) {\n    return 200;\n  }\n\n\n  if (\n    researchStatus === 'IN_PROGRESS'\n  ) {\n    return 100;\n  }\n\n\n  return 0;\n}\n\n\nif (!requestedKey) {\n  return blocked(\n    'No opportunity_key was supplied to the sender.',\n    [\n      'A specific opportunity_key is required.',\n    ],\n    {\n      duplicate_campaign: false,\n    },\n  );\n}\n\n\nconst selected =\n  rows.find(\n    row =>\n      clean(row.opportunity_key) ===\n      requestedKey\n  ) ?? null;\n\n\nif (!selected) {\n  return blocked(\n    'The requested application was not found.',\n    [\n      'No matching Application_Tracker row was found.',\n    ],\n    {\n      duplicate_campaign: false,\n    },\n  );\n}\n\n\n/*\n * Find every active campaign sharing the\n * selected row's company or contact identity.\n */\nconst relatedActiveCampaigns =\n  rows\n    .filter(candidate =>\n      sharesCampaignIdentity(\n        selected,\n        candidate,\n      ) &&\n      campaignRank(candidate) > 0\n    )\n    .sort(\n      (first, second) => {\n        const rankDifference =\n          campaignRank(second) -\n          campaignRank(first);\n\n        if (rankDifference) {\n          return rankDifference;\n        }\n\n        const sentDifference =\n          clean(second.sent_at)\n            .localeCompare(\n              clean(first.sent_at)\n            );\n\n        if (sentDifference) {\n          return sentDifference;\n        }\n\n        return clean(\n          first.opportunity_key\n        ).localeCompare(\n          clean(\n            second.opportunity_key\n          )\n        );\n      },\n    );\n\n\nconst canonicalCampaign =\n  relatedActiveCampaigns[0] ?? null;\n\nconst canonicalKey =\n  clean(\n    canonicalCampaign\n      ?.opportunity_key\n  );\n\n\nif (\n  canonicalCampaign &&\n  canonicalKey &&\n  canonicalKey !== requestedKey\n) {\n  const canonicalCompany =\n    clean(\n      canonicalCampaign.company_name\n    ) ||\n    clean(selected.company_name) ||\n    'This company';\n\n  const canonicalPosition =\n    clean(\n      canonicalCampaign.position_title\n    ) ||\n    'another opportunity';\n\n  const canonicalContact =\n    clean(\n      canonicalCampaign.contact_name\n    ) ||\n    clean(\n      canonicalCampaign.contact_email\n    ) ||\n    'the saved company contact';\n\n  const canonicalStatus =\n    upper(\n      canonicalCampaign.outreach_status\n    ) ||\n    upper(\n      canonicalCampaign\n        .contact_research_status\n    ) ||\n    'ACTIVE';\n\n  return blocked(\n    `${canonicalCompany} already has an active company outreach campaign.`,\n    [\n      `Canonical campaign: ${canonicalPosition}.`,\n      `Contact: ${canonicalContact}.`,\n      `Campaign status: ${canonicalStatus}.`,\n      'A second email cannot be sent for this company or contact.',\n    ],\n    {\n      duplicate_campaign: true,\n\n      covered_by_opportunity_key:\n        canonicalKey,\n\n      covered_by_company_name:\n        canonicalCompany,\n\n      covered_by_position_title:\n        canonicalPosition,\n\n      covered_by_contact:\n        canonicalContact,\n\n      covered_by_status:\n        canonicalStatus,\n    },\n  );\n}\n\n\nreturn [\n  {\n    json: {\n      ...selected,\n\n      sender_selection_ready:\n        true,\n\n      success:\n        true,\n\n      duplicate_campaign:\n        false,\n\n      requested_opportunity_key:\n        requestedKey,\n\n      sender_selection_checked_at:\n        new Date().toISOString(),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        112
+      ],
+      "id": "95daa1e8-f069-420e-af3f-d87202300474",
+      "name": "Select Sender Application"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3582afff-600f-42ae-b786-5e049c3b9de1",
+              "leftValue": "={{ $json.sender_selection_ready === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        48,
+        128
+      ],
+      "id": "20099e67-ca9a-4a39-bb92-9d7f1f351183",
+      "name": "Sender Application Found?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const blocked =\n  $input.first()?.json ?? {};\n\nreturn [\n  {\n    json: {\n      ...blocked,\n      success: false,\n      send_status: 'BLOCKED',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        224
+      ],
+      "id": "e6a36f91-4ffc-49f6-8e8f-ab46300f2a6a",
+      "name": "Return Sender Selection Blocked"
+    },
+    {
+      "parameters": {
+        "jsCode": "const gate =\n  $('Validate Email Send Gate')\n    .first()\n    .json ?? {};\n\nreturn [\n  {\n    json: {\n      ...gate,\n      success: false,\n      send_status: 'BLOCKED',\n\n      message:\n        'The outreach email was blocked by the sender safety gate.',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        144
+      ],
+      "id": "dd054c67-961f-4197-ae02-760ca37234f5",
+      "name": "Return Sender Gate Blocked"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sent =\n  $('Prepare Sent Tracker Update')\n    .first()\n    ?.json ?? {};\n\nreturn [\n  {\n    json: {\n      success: true,\n\n      send_status:\n        'SENT',\n\n      message:\n        'Approved outreach email sent successfully.',\n\n      opportunity_key:\n        sent.opportunity_key,\n\n      contact_email:\n        sent.contact_email,\n\n      sent_at:\n        sent.sent_at,\n\n      follow_up_date:\n        sent.follow_up_date,\n\n      response_status:\n        sent.response_status,\n\n      gmail_message_id:\n        sent.gmail_message_id,\n\n      gmail_thread_id:\n        sent.gmail_thread_id,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -96
+      ],
+      "id": "c1fd7dfb-3994-41c9-86e8-78f82c71d84c",
+      "name": "Return Sender Success"
+    },
+    {
+      "parameters": {
+        "jsCode": "const gate =\n  $('Validate Email Send Gate')\n    .first()\n    ?.json ?? {};\n\nconst gmail =\n  $('Send Approved Outreach Email')\n    .first()\n    ?.json ?? {};\n\nconst clean = (value) =>\n  String(value ?? '').trim();\n\n\nfunction addBusinessDays(\n  startDate,\n  numberOfDays\n) {\n  const date =\n    new Date(startDate);\n\n  let addedDays = 0;\n\n  while (\n    addedDays < numberOfDays\n  ) {\n    date.setUTCDate(\n      date.getUTCDate() + 1\n    );\n\n    const dayOfWeek =\n      date.getUTCDay();\n\n    const isWeekend =\n      dayOfWeek === 0 ||\n      dayOfWeek === 6;\n\n    if (!isWeekend) {\n      addedDays++;\n    }\n  }\n\n  return date\n    .toISOString()\n    .slice(0, 10);\n}\n\n\nconst sentAt =\n  new Date().toISOString();\n\nconst followUpDate =\n  addBusinessDays(\n    sentAt,\n    5\n  );\n\nconst gmailMessageId =\n  clean(\n    gmail.id ||\n    gmail.messageId\n  );\n\nconst gmailThreadId =\n  clean(\n    gmail.threadId\n  );\n\n\nreturn [\n  {\n    json: {\n      ...gate,\n\n      opportunity_key:\n        clean(gate.opportunity_key),\n\n      contact_email:\n        clean(gate.contact_email),\n\n      outreach_status:\n        'SENT',\n\n      outreach_approval:\n        'APPROVED',\n\n      sent_at:\n        sentAt,\n\n      follow_up_date:\n        followUpDate,\n\n      response_status:\n        'NO_RESPONSE',\n\n      gmail_message_id:\n        gmailMessageId,\n\n      gmail_thread_id:\n        gmailThreadId,\n\n      last_updated:\n        sentAt,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        -80
+      ],
+      "id": "75a64941-17c9-475a-b42e-531f3b2306bc",
+      "name": "Prepare Sent Tracker Update"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sender Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Validate Email Send Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Email Send Gate": {
+      "main": [
+        [
+          {
+            "node": "Email Authorized to Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Authorized to Send?": {
+      "main": [
+        [
+          {
+            "node": "Send Approved Outreach Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Sender Gate Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Approved Outreach Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sent Tracker Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triggered from Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sender Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Sender Applications": {
+      "main": [
+        [
+          {
+            "node": "Select Sender Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Sender Request": {
+      "main": [
+        [
+          {
+            "node": "Load Sender Applications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Sender Application": {
+      "main": [
+        [
+          {
+            "node": "Sender Application Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sender Application Found?": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Sender Selection Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Outreach Email Sent": {
+      "main": [
+        [
+          {
+            "node": "Return Sender Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sent Tracker Update": {
+      "main": [
+        [
+          {
+            "node": "Mark Outreach Email Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

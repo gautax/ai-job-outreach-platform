@@ -1,0 +1,182 @@
+{
+  "name": "Dashboard API - Discovery Action",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dashboard-discovery",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -272,
+        -16
+      ],
+      "id": "3a9b177f-73d9-4933-9930-0b0cf04b2f83",
+      "name": "Webhook",
+      "webhookId": "e731a0d0-d34b-551e-9904-ce53fd3f8e5b"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"status\": \"STARTED\",\n  \"message\": \"Opportunity discovery started. Refresh the dashboard after the workflows finish.\"\n}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        48,
+        -112
+      ],
+      "id": "fe81410a-e51d-43e6-80e4-028e0d60b926",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SCRAPER_CONNECTION_TEST_WORKFLOW_ID",
+          "mode": "id",
+          "cachedResultName": "Scraper Connection Test"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        32,
+        64
+      ],
+      "id": "9bee1fa0-2b6a-477f-bf52-0ea30ea2f36d",
+      "name": "Call 'Scraper Connection Test'",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_COMPANY_QUALIFICATION_WORKFLOW_ID",
+          "mode": "id",
+          "cachedResultName": "Company Qualification"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        64
+      ],
+      "id": "3f9abeb7-82c6-4f68-92e3-81e72271bd6b",
+      "name": "Call 'Company Qualification'",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_APPLICATION_QUEUE_BUILDER_WORKFLOW_ID",
+          "mode": "id",
+          "cachedResultName": "Application Queue Builder"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        64
+      ],
+      "id": "66cdf237-8818-4b93-9c8e-84f153b997ce",
+      "name": "Call 'Application Queue Builder'",
+      "alwaysOutputData": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call 'Scraper Connection Test'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Scraper Connection Test'": {
+      "main": [
+        [
+          {
+            "node": "Call 'Company Qualification'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Company Qualification'": {
+      "main": [
+        [
+          {
+            "node": "Call 'Application Queue Builder'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

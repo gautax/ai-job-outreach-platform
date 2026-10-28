@@ -1,0 +1,1494 @@
+{
+  "name": "Company Qualification",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        64
+      ],
+      "id": "610bde43-d99c-4017-b471-ea401b9e73e6",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1905939676,
+          "mode": "list",
+          "cachedResultName": "Companies"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        80,
+        32
+      ],
+      "id": "74d5de15-fcdd-4dac-bdc9-91efdd0ed052",
+      "name": "Load Companies to Qualify"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "company_key",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -48
+      ],
+      "id": "c5fb8fda-57bd-4e53-986c-7980a5a4896e",
+      "name": "One Item Per Company"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        592,
+        -112
+      ],
+      "id": "c12370b8-515a-47b1-b425-750fc1f0cd19",
+      "name": "Merge Company With Qualification"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e849087d-1f03-48c6-92bf-028b856d0dff",
+              "leftValue": "={{ Number($json.qualification_version || 0) < 3 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1152,
+        -32
+      ],
+      "id": "191df91c-d5ad-4a6e-ae7b-e9b1a74f035b",
+      "name": "Needs Qualification?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const websiteCandidates = [\n  $json.company_website,\n  $json.official_website_scraped,\n];\n\nconst rawWebsite =\n  websiteCandidates.find(\n    value =>\n      typeof value === 'string' &&\n      value.trim() !== ''\n  ) || '';\n\nlet targetWebsite = rawWebsite.trim();\n\nif (\n  targetWebsite &&\n  !/^[a-z][a-z0-9+.-]*:\\/\\//i.test(targetWebsite)\n) {\n  targetWebsite = `https://${targetWebsite}`;\n}\n\nreturn {\n  json: {\n    ...$json,\n\n    target_website: targetWebsite,\n\n    website_scan_status:\n      targetWebsite\n        ? 'READY'\n        : 'NO_WEBSITE_FOUND',\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        192
+      ],
+      "id": "0f818567-e81a-4b7d-80ed-61753df7d0af",
+      "name": "Prepare Website Scan"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "61c4ba45-d0b5-4e40-90e5-cdbe37e3731a",
+              "leftValue": "={{ String($json.target_website ?? '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        384
+      ],
+      "id": "892a560d-9804-4b68-a683-b6a5a15696ae",
+      "name": "Has Company Website?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.target_website }}\n",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 3
+            }
+          },
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "homepage_html"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1248,
+        368
+      ],
+      "id": "ceb2459e-76ad-412f-86af-784118b262cf",
+      "name": "Fetch Company Homepage",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "homepage_html",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "hrefs",
+              "cssSelector": "a",
+              "returnValue": "attribute",
+              "attribute": "href",
+              "returnArray": true
+            },
+            {
+              "key": "link_texts",
+              "cssSelector": "a",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        1456,
+        368
+      ],
+      "id": "467d20a8-e89e-4f07-8684-bbe87042930c",
+      "name": "Extract Homepage Links"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const company =\n  $('Prepare Website Scan').item.json;\n\nconst hrefs = Array.isArray($json.hrefs)\n  ? $json.hrefs\n  : [];\n\nconst linkTexts = Array.isArray($json.link_texts)\n  ? $json.link_texts\n  : [];\n\nconst baseWebsite = String(\n  company.target_website ?? ''\n).trim();\n\nconst originMatch =\n  baseWebsite.match(/^(https?:\\/\\/[^/]+)/i);\n\nconst origin = originMatch\n  ? originMatch[1]\n  : '';\n\nfunction makeAbsoluteUrl(value) {\n  const href = String(value ?? '').trim();\n\n  if (!href) {\n    return '';\n  }\n\n  if (\n    href.startsWith('#') ||\n    href.startsWith('mailto:') ||\n    href.startsWith('tel:') ||\n    href.startsWith('javascript:')\n  ) {\n    return '';\n  }\n\n  if (/^https?:\\/\\//i.test(href)) {\n    return href;\n  }\n\n  if (href.startsWith('//')) {\n    return `https:${href}`;\n  }\n\n  if (href.startsWith('/')) {\n    return origin\n      ? `${origin}${href}`\n      : '';\n  }\n\n  return origin\n    ? `${origin}/${href.replace(/^\\/+/, '')}`\n    : '';\n}\n\nconst cleanedLinks = [];\n\nfor (let index = 0; index < hrefs.length; index++) {\n  const url = makeAbsoluteUrl(hrefs[index]);\n\n  if (!url) {\n    continue;\n  }\n\n  const text = String(\n    linkTexts[index] ?? ''\n  ).trim();\n\n  cleanedLinks.push({\n    url,\n    text,\n    searchable_text:\n      `${url} ${text}`.toLowerCase(),\n  });\n}\n\nfunction uniqueUrls(items) {\n  return [\n    ...new Set(\n      items.map(item => item.url)\n    ),\n  ];\n}\n\nconst careersPattern =\n  /(career|careers|job|jobs|vacanc|open[-_\\s]?position|join[-_\\s]?(us|our team)|work[-_\\s]?with[-_\\s]?us|karriere|stellen|kariera|praca|oferty[-_\\s]?pracy|кариера|работа|ваканс)/i;\n\nconst contactPattern =\n  /(contact|contacts|kontakt|kontak|контакт)/i;\n\nconst aboutPattern =\n  /(about|our[-_\\s]?company|who[-_\\s]?we[-_\\s]?are|our[-_\\s]?story|team|people|o[-_\\s]?nas|ueber[-_\\s]?uns|über[-_\\s]?uns|за[-_\\s]?нас)/i;\n\nconst careersCandidates = uniqueUrls(\n  cleanedLinks.filter(link =>\n    careersPattern.test(link.searchable_text)\n  )\n);\n\nconst contactCandidates = uniqueUrls(\n  cleanedLinks.filter(link =>\n    contactPattern.test(link.searchable_text)\n  )\n);\n\nconst aboutCandidates = uniqueUrls(\n  cleanedLinks.filter(link =>\n    aboutPattern.test(link.searchable_text)\n  )\n);\n\nconst linkedinCandidates = uniqueUrls(\n  cleanedLinks.filter(link =>\n    /linkedin\\.com\\/company\\//i.test(link.url)\n  )\n);\n\nreturn {\n  json: {\n    ...company,\n\n    homepage_links_count:\n      cleanedLinks.length,\n\n    careers_candidates:\n      careersCandidates,\n\n    careers_url:\n      careersCandidates[0] || '',\n\n    contact_candidates:\n      contactCandidates,\n\n    contact_url:\n      contactCandidates[0] || '',\n\n    about_candidates:\n      aboutCandidates,\n\n    about_url:\n      aboutCandidates[0] || '',\n\n    linkedin_candidates:\n      linkedinCandidates,\n\n    linkedin_company_url:\n      linkedinCandidates[0] || '',\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        368
+      ],
+      "id": "d1cf743f-cc04-480d-8a40-d9e6dd034a8f",
+      "name": "Identify Important Links"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const website = String(\n  $json.target_website ?? ''\n)\n  .trim()\n  .replace(/\\/+$/, '');\n\nconst originMatch =\n  website.match(/^(https?:\\/\\/[^/]+)/i);\n\nconst origin = originMatch\n  ? originMatch[1]\n  : '';\n\nconst discoveredCandidates =\n  Array.isArray($json.careers_candidates)\n    ? $json.careers_candidates\n    : [];\n\nconst commonPaths = [\n  '/careers',\n  '/jobs',\n  '/career',\n  '/join-us',\n  '/join-our-team',\n  '/work-with-us',\n  '/karriere',\n  '/kariera',\n  '/praca',\n];\n\nconst generatedCandidates = origin\n  ? commonPaths.map(path => `${origin}${path}`)\n  : [];\n\nconst careerProbeUrls = (\n  discoveredCandidates.length > 0\n    ? discoveredCandidates\n    : generatedCandidates\n)\n  .map(value =>\n    String(value ?? '')\n      .trim()\n      .replace(/#.*$/, '')\n  )\n  .filter(Boolean);\n\nconst uniqueCareerProbeUrls = [\n  ...new Set(careerProbeUrls),\n];\n\nreturn {\n  json: {\n    ...$json,\n\n    career_probe_urls:\n      uniqueCareerProbeUrls,\n\n    career_probe_count:\n      uniqueCareerProbeUrls.length,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        368
+      ],
+      "id": "f5fdca1a-d4f9-42d4-b3ff-b617bf44fc7c",
+      "name": "Build Career Page Candidates"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "career_probe_urls",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        784,
+        592
+      ],
+      "id": "c185843d-a935-4d30-8b41-fc1d56120db5",
+      "name": "Split Career Candidates"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.career_probe_urls }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 3
+            }
+          },
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "career_page_html"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1200,
+        592
+      ],
+      "id": "d9e8dfa9-1a06-4c00-a021-b4d2dc890dc1",
+      "name": "Probe Career Candidate",
+      "retryOnFail": true,
+      "waitBetweenTries": 1500,
+      "maxTries": 2,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const source =\n  $('Split Career Candidates').item.json;\n\nconst probeUrl = String(\n  source.career_probe_urls ?? ''\n).trim();\n\nconst statusCode = Number(\n  $json.statusCode ??\n  $json.status_code ??\n  0\n);\n\nconst rawHtml = String(\n  $json.career_page_html ??\n  $json.body?.career_page_html ??\n  $json.body ??\n  ''\n);\n\nconst pageText = rawHtml\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;/gi, ' ')\n  .replace(/&amp;/gi, '&')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .toLowerCase();\n\nconst notFoundPattern =\n  /(404|page not found|not found|does not exist|doesn't exist|seite nicht gefunden|strona nie istnieje)/i;\n\nconst careersPattern =\n  /(career|careers|jobs|job openings|open positions|join our team|work with us|vacancies|karriere|stellenangebote|kariera|oferty pracy|работа|вакансии)/i;\n\nconst applicationPattern =\n  /(apply|application|position|role|vacancy|opening|candidate|recruitment|submit your cv|send your cv)/i;\n\nconst statusOkay =\n  statusCode >= 200 &&\n  statusCode < 400;\n\nconst hasNotFoundSignal =\n  notFoundPattern.test(pageText);\n\nconst hasCareerSignal =\n  careersPattern.test(pageText);\n\nconst hasApplicationSignal =\n  applicationPattern.test(pageText);\n\nlet probeStatus = 'NO_CAREER_SIGNAL';\n\nif (statusCode === 404 || statusCode === 410) {\n  probeStatus = 'NOT_FOUND';\n} else if (statusCode === 401 || statusCode === 403) {\n  probeStatus = 'BLOCKED';\n} else if (statusCode === 0 || statusCode >= 500) {\n  probeStatus = 'HTTP_ERROR';\n} else if (!statusOkay) {\n  probeStatus = 'HTTP_ERROR';\n} else if (hasNotFoundSignal && !hasCareerSignal) {\n  probeStatus = 'NOT_FOUND';\n} else if (hasCareerSignal && hasApplicationSignal) {\n  probeStatus = 'LIKELY_CAREERS_PAGE';\n} else if (hasCareerSignal) {\n  probeStatus = 'POSSIBLE_CAREERS_PAGE';\n}\n\nreturn {\n  json: {\n    ...source,\n\n    career_probe_url: probeUrl,\n    career_probe_status_code: statusCode,\n    career_probe_status: probeStatus,\n\n    career_signal_found:\n      hasCareerSignal,\n\n    application_signal_found:\n      hasApplicationSignal,\n\n    page_not_found_signal:\n      hasNotFoundSignal,\n\n    career_page_text_preview:\n      pageText.slice(0, 500),\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        592
+      ],
+      "id": "004925d7-11e7-410a-a7bc-589246e76354",
+      "name": "Assess Career Candidate"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\n\nconst groups = new Map();\n\nfor (const row of rows) {\n  const key =\n    row.company_key ||\n    row.company_domain ||\n    row.company_name ||\n    'unknown-company';\n\n  if (!groups.has(key)) {\n    groups.set(key, []);\n  }\n\n  groups.get(key).push(row);\n}\n\nconst ranking = {\n  LIKELY_CAREERS_PAGE: 5,\n  POSSIBLE_CAREERS_PAGE: 4,\n  NO_CAREER_SIGNAL: 2,\n  NOT_FOUND: 1,\n  BLOCKED: 0,\n  HTTP_ERROR: 0,\n};\n\nconst output = [];\n\nfor (const [companyKey, probes] of groups.entries()) {\n  const sortedProbes = [...probes].sort((a, b) => {\n    const scoreA =\n      ranking[a.career_probe_status] ?? 0;\n\n    const scoreB =\n      ranking[b.career_probe_status] ?? 0;\n\n    return scoreB - scoreA;\n  });\n\n  const bestProbe = sortedProbes[0];\n\n  const hasLikelyPage = probes.some(\n    probe =>\n      probe.career_probe_status ===\n      'LIKELY_CAREERS_PAGE'\n  );\n\n  const hasPossiblePage = probes.some(\n    probe =>\n      probe.career_probe_status ===\n      'POSSIBLE_CAREERS_PAGE'\n  );\n\n  const allHttpErrors = probes.every(\n    probe =>\n      probe.career_probe_status ===\n      'HTTP_ERROR'\n  );\n\n  let careersPageStatus =\n    'CAREERS_PAGE_NOT_FOUND';\n\n  if (hasLikelyPage) {\n    careersPageStatus =\n      'CAREERS_PAGE_FOUND';\n  } else if (hasPossiblePage) {\n    careersPageStatus =\n      'CAREERS_PAGE_POSSIBLE';\n  } else if (allHttpErrors) {\n    careersPageStatus =\n      'CAREERS_PAGE_UNREACHABLE';\n  }\n\n  const acceptedStatuses = [\n    'LIKELY_CAREERS_PAGE',\n    'POSSIBLE_CAREERS_PAGE',\n  ];\n\n  const selectedCareersUrl =\n    acceptedStatuses.includes(\n      bestProbe.career_probe_status\n    )\n      ? bestProbe.career_probe_url\n      : '';\n\n  const base = {\n    ...probes[0],\n  };\n\n  delete base.career_probe_url;\n  delete base.career_probe_status_code;\n  delete base.career_probe_status;\n  delete base.career_signal_found;\n  delete base.application_signal_found;\n  delete base.page_not_found_signal;\n  delete base.career_page_text_preview;\n\n  output.push({\n    json: {\n      ...base,\n\n      company_key: companyKey,\n\n      careers_url:\n        selectedCareersUrl,\n\n      careers_page_status:\n        careersPageStatus,\n\n      career_probe_count:\n        probes.length,\n\n      career_probe_results:\n        probes.map(probe => ({\n          url:\n            probe.career_probe_url,\n\n          status_code:\n            probe.career_probe_status_code,\n\n          result:\n            probe.career_probe_status,\n        })),\n    },\n  });\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        592
+      ],
+      "id": "89d7c644-5cea-4b10-b70a-dffa856a65e2",
+      "name": "Summarize Career Scan"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "637f9f83-6b77-468b-9a89-bde164271c8a",
+              "leftValue": "={{ ['CAREERS_PAGE_FOUND', 'CAREERS_PAGE_POSSIBLE'].includes(String($json.careers_page_status || '')) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1824,
+        592
+      ],
+      "id": "b4afa7df-81a8-4b04-b4dc-b372f18c51ca",
+      "name": "Has Careers Page?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const entityType = String(\n  $json.entity_type ?? ''\n).toUpperCase();\n\nconst countryStatus = String(\n  $json.country_match_status ?? ''\n).toUpperCase();\n\nconst profileFitScore = Number(\n  $json.profile_fit_score ?? 0\n);\n\nconst hiringSignal =\n  $json.hiring_signal === true ||\n  String($json.hiring_signal).toLowerCase() === 'true';\n\nlet opportunityType = 'SPECULATIVE_OUTREACH';\n\nif (\n  entityType === 'VC_FUND' ||\n  entityType === 'ACCELERATOR'\n) {\n  opportunityType = 'ECOSYSTEM_OUTREACH';\n} else if (countryStatus === 'MISMATCH') {\n  opportunityType = 'MONITOR_ONLY';\n}\n\nconst qualificationReasonParts = [\n  'No public careers page was found.',\n];\n\nif ($json.profile_fit_evidence) {\n  qualificationReasonParts.push(\n    String($json.profile_fit_evidence)\n  );\n}\n\nif ($json.hiring_evidence) {\n  qualificationReasonParts.push(\n    String($json.hiring_evidence)\n  );\n}\n\nreturn {\n  json: {\n    ...$json,\n\n    qualification_path:\n      'NO_CAREERS_PAGE',\n\n    openings_count: 0,\n    relevant_openings_count: 0,\n\n    relevant_role_titles: [],\n    relevant_vacancy_urls: [],\n\n    vacancy_status:\n      $json.careers_page_status ===\n      'CAREERS_PAGE_UNREACHABLE'\n        ? 'UNKNOWN'\n        : 'CAREERS_PAGE_NOT_FOUND',\n\n    english_workplace_evidence: '',\n\n    relocation_support_status:\n      'UNKNOWN',\n\n    relocation_evidence: '',\n\n    visa_support_status:\n      $json.visa_support_status ||\n      'UNKNOWN',\n\n    visa_evidence:\n      $json.visa_sponsorship_evidence ||\n      '',\n\n    opportunity_type:\n      opportunityType,\n\n    qualification_score:\n      Math.min(\n        100,\n        profileFitScore +\n          (hiringSignal ? 5 : 0)\n      ),\n\n    qualification_reason:\n      qualificationReasonParts.join(' '),\n\n    qualification_status:\n      'QUALIFIED',\n\n    last_checked:\n      new Date().toISOString(),\n\n    qualification_version: 3,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        752
+      ],
+      "id": "09b4d420-744d-41eb-afa2-139d5536f504",
+      "name": "Prepare Speculative Path"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 365194359,
+          "mode": "list",
+          "cachedResultName": "Company_Qualification"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "company_key"
+          ],
+          "schema": [
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_website",
+              "displayName": "company_website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "verified_company_country",
+              "displayName": "verified_company_country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity_type",
+              "displayName": "entity_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "direct_employer_priority",
+              "displayName": "direct_employer_priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ecosystem_value",
+              "displayName": "ecosystem_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_url",
+              "displayName": "careers_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_page_status",
+              "displayName": "careers_page_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "openings_count",
+              "displayName": "openings_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_openings_count",
+              "displayName": "relevant_openings_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_role_titles",
+              "displayName": "relevant_role_titles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_vacancy_urls",
+              "displayName": "relevant_vacancy_urls",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_status",
+              "displayName": "vacancy_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_signal",
+              "displayName": "hiring_signal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_evidence",
+              "displayName": "hiring_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "english_workplace_evidence",
+              "displayName": "english_workplace_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relocation_support_status",
+              "displayName": "relocation_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relocation_evidence",
+              "displayName": "relocation_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_evidence",
+              "displayName": "visa_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunity_type",
+              "displayName": "opportunity_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_status",
+              "displayName": "qualification_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_checked",
+              "displayName": "last_checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_version",
+              "displayName": "qualification_version",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1680,
+        752
+      ],
+      "id": "4d61863c-da8e-40a0-81e3-2e7d20aa6cb8",
+      "name": "Save Speculative Qualification"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.careers_url }}",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text",
+              "outputPropertyName": "careers_page_html"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2112,
+        576
+      ],
+      "id": "b7ac0a11-4bec-4a4b-af19-1bb235edbf22",
+      "name": "Fetch Careers Page",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "careers_page_html",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "hrefs",
+              "cssSelector": "a",
+              "returnValue": "attribute",
+              "attribute": "href",
+              "returnArray": true
+            },
+            {
+              "key": "link_texts",
+              "cssSelector": "a",
+              "returnArray": true
+            },
+            {
+              "key": "mailto_links",
+              "cssSelector": "a[href^=\"mailto:\"]",
+              "returnValue": "attribute",
+              "attribute": "href",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        2240,
+        128
+      ],
+      "id": "a9129d42-d098-413b-a6a5-e3711a6c6846",
+      "name": "Extract Career Page Links"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let company;\n\ntry {\n  // Normal path: the careers page was discovered during this run\n  company =\n    $('Has Careers Page?').item.json;\n} catch {\n  // Shortcut path: a previously saved careers URL was reused\n  company =\n    $('Has Saved Careers URL?').item.json;\n}\nconst hrefs = Array.isArray($json.hrefs)\n  ? $json.hrefs\n  : [];\n\nconst linkTexts = Array.isArray($json.link_texts)\n  ? $json.link_texts\n  : [];\n\nconst mailtoLinks = Array.isArray($json.mailto_links)\n  ? $json.mailto_links\n  : [];\n\nconst baseWebsite = String(\n  company.careers_url ||\n  company.target_website ||\n  ''\n)\n  .trim()\n  .replace(/\\/+$/, '');\n\nconst originMatch =\n  baseWebsite.match(/^(https?:\\/\\/[^/]+)/i);\n\nconst origin = originMatch\n  ? originMatch[1]\n  : '';\n\nfunction makeAbsoluteUrl(value) {\n  const href = String(value ?? '').trim();\n\n  if (!href || href.startsWith('#')) {\n    return '';\n  }\n\n  if (/^https?:\\/\\//i.test(href)) {\n    return href;\n  }\n\n  if (href.startsWith('//')) {\n    return `https:${href}`;\n  }\n\n  if (href.startsWith('/')) {\n    return origin\n      ? `${origin}${href}`\n      : '';\n  }\n\n  return origin\n    ? `${origin}/${href.replace(/^\\/+/, '')}`\n    : '';\n}\n\nfunction cleanText(value) {\n  return String(value ?? '')\n    .replace(/\\[[^\\]]+\\]/g, ' ')\n    .replace(/[→›»]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst jobPathPattern =\n  /\\/(career|careers|job|jobs|position|positions|vacancy|vacancies)\\/[^/?#]+/i;\n\nconst knownAtsPattern =\n  /(lever\\.co|greenhouse\\.io|workable\\.com|recruitee\\.com|teamtailor\\.com|smartrecruiters\\.com|workdayjobs\\.com)/i;\n\nconst excludedRolePattern =\n  /(sales|marketing|marketer|sdr|business development|account executive|customer success|recruiter|recruitment|human resources|finance|legal)/i;\n\nconst targetRolePattern =\n  /(artificial intelligence engineer|ai engineer|machine learning engineer|\\bml engineer\\b|data engineer|data scientist|analytics engineer|mlops|research scientist|applied scientist|nlp engineer|computer vision engineer|deep learning engineer|backend engineer|backend developer|platform engineer|infrastructure engineer|software engineer|full[-\\s]?stack engineer|python developer|python engineer)/i;\n\nconst openings = [];\n\nfor (let index = 0; index < hrefs.length; index++) {\n  const url = makeAbsoluteUrl(hrefs[index]);\n  const title = cleanText(linkTexts[index]);\n\n  if (!url) {\n    continue;\n  }\n\n  const isJobLink =\n    jobPathPattern.test(url) ||\n    knownAtsPattern.test(url);\n\n  const isGenericCareersPage =\n    /\\/(career|careers|job|jobs|position|positions|vacancy|vacancies)\\/?(?:[?#].*)?$/i\n      .test(url);\n\n  if (!isJobLink || isGenericCareersPage) {\n    continue;\n  }\n\n  openings.push({\n    title: title || 'Untitled position',\n    url,\n    relevant:\n      !excludedRolePattern.test(title) &&\n      targetRolePattern.test(title),\n  });\n}\n\nconst uniqueOpenings = [\n  ...new Map(\n    openings.map(opening => [\n      opening.url,\n      opening,\n    ])\n  ).values(),\n];\n\nconst relevantOpenings =\n  uniqueOpenings.filter(\n    opening => opening.relevant\n  );\n\nconst extractedEmails = [\n  ...new Set(\n    mailtoLinks\n      .map(value =>\n        String(value ?? '')\n          .replace(/^mailto:/i, '')\n          .split('?')[0]\n          .trim()\n          .toLowerCase()\n      )\n      .filter(Boolean)\n  ),\n];\n\nconst excludedEmailPattern =\n  /^(sales|marketing|support|billing|privacy|security|press|media|legal|partnerships?|business)@/i;\n\nfunction emailPriority(email) {\n  if (\n    /^(careers?|jobs?|recruiting|recruitment|talent|hr|people)@/i\n      .test(email)\n  ) {\n    return 3;\n  }\n\n  if (\n    /^(info|hello|contact|office|team)@/i\n      .test(email)\n  ) {\n    return 2;\n  }\n\n  return 1;\n}\n\nconst suitableEmails = extractedEmails\n  .filter(email =>\n    !excludedEmailPattern.test(email)\n  )\n  .sort(\n    (a, b) =>\n      emailPriority(b) -\n      emailPriority(a)\n  );\n\nconst careersContactEmail =\n  suitableEmails[0] || '';\nreturn {\n  json: {\n    ...company,\n\n    openings_count:\n      uniqueOpenings.length,\n\n    opening_titles:\n      uniqueOpenings.map(\n        opening => opening.title\n      ),\n\n    opening_urls:\n      uniqueOpenings.map(\n        opening => opening.url\n      ),\n\n    relevant_openings_count:\n      relevantOpenings.length,\n\n    relevant_role_titles:\n      relevantOpenings.map(\n        opening => opening.title\n      ),\n\n    relevant_vacancy_urls:\n      relevantOpenings.map(\n        opening => opening.url\n      ),\n\n    careers_contact_email:\n      careersContactEmail,\n\n    extracted_openings:\n      uniqueOpenings,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        576
+      ],
+      "id": "708296c6-d260-46b2-8c34-c740ce1be0cb",
+      "name": "Extract Job Listings"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const entityType = String(\n  $json.entity_type ?? ''\n).toUpperCase();\n\nconst countryStatus = String(\n  $json.country_match_status ?? ''\n).toUpperCase();\n\nconst profileFitScore = Number(\n  $json.profile_fit_score ?? 0\n);\n\nconst openingsCount = Number(\n  $json.openings_count ?? 0\n);\n\nconst relevantOpeningsCount = Number(\n  $json.relevant_openings_count ?? 0\n);\n\nconst hiringSignal =\n  $json.hiring_signal === true ||\n  String($json.hiring_signal ?? '')\n    .toLowerCase() === 'true';\n\nconst relevantTitles = Array.isArray(\n  $json.relevant_role_titles\n)\n  ? $json.relevant_role_titles\n  : [];\n\nconst relevantUrls = Array.isArray(\n  $json.relevant_vacancy_urls\n)\n  ? $json.relevant_vacancy_urls\n  : [];\n\nlet vacancyStatus = 'NO_OPENINGS_FOUND';\n\nif (relevantOpeningsCount > 0) {\n  vacancyStatus = 'RELEVANT_OPENING';\n} else if (openingsCount > 0) {\n  vacancyStatus = 'OTHER_OPENINGS';\n}\n\nlet opportunityType = 'SPECULATIVE_OUTREACH';\n\nif (countryStatus === 'MISMATCH') {\n  opportunityType = 'MONITOR_ONLY';\n} else if (\n  entityType === 'VC_FUND' ||\n  entityType === 'ACCELERATOR'\n) {\n  opportunityType = 'ECOSYSTEM_OUTREACH';\n} else if (relevantOpeningsCount > 0) {\n  opportunityType = 'DIRECT_APPLICATION';\n} else if (\n  openingsCount === 0 &&\n  profileFitScore < 50 &&\n  !hiringSignal\n) {\n  opportunityType = 'MONITOR_ONLY';\n}\n\nlet qualificationScore = profileFitScore;\n\nif (relevantOpeningsCount > 0) {\n  qualificationScore += 15;\n} else if (openingsCount > 0) {\n  qualificationScore += 5;\n}\n\nif (hiringSignal) {\n  qualificationScore += 5;\n}\n\nqualificationScore = Math.min(\n  100,\n  qualificationScore\n);\n\nconst qualificationReasonParts = [];\n\nif (relevantOpeningsCount > 0) {\n  qualificationReasonParts.push(\n    `${relevantOpeningsCount} relevant public opening(s) found: ${relevantTitles.join(' | ')}.`\n  );\n} else if (openingsCount > 0) {\n  qualificationReasonParts.push(\n    `${openingsCount} public opening(s) found, but none matched the target AI/Data profile.`\n  );\n} else {\n  qualificationReasonParts.push(\n    'A careers page was found, but no active openings were detected.'\n  );\n}\n\nif ($json.profile_fit_evidence) {\n  qualificationReasonParts.push(\n    String($json.profile_fit_evidence)\n  );\n}\n\nreturn {\n  json: {\n    ...$json,\n\n    relevant_role_titles:\n      relevantTitles.join(' | '),\n\n    relevant_vacancy_urls:\n      relevantUrls.join(' | '),\n\n    vacancy_status:\n      vacancyStatus,\n\n    opportunity_type:\n      opportunityType,\n\n    english_workplace_evidence: '',\n\n    relocation_support_status:\n      'UNKNOWN',\n\n    relocation_evidence: '',\n\n    visa_support_status:\n      $json.visa_support_status ||\n      'UNKNOWN',\n\n    visa_evidence:\n      $json.visa_sponsorship_evidence ||\n      '',\n\n    qualification_score:\n      qualificationScore,\n\n    qualification_reason:\n      qualificationReasonParts.join(' '),\n\n    qualification_status:\n      'QUALIFIED',\n\n    last_checked:\n      new Date().toISOString(),\n\n    qualification_version: 3,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        176
+      ],
+      "id": "445e5211-e9af-4571-840e-b4b7e3c2b20f",
+      "name": "Finalize Vacancy Qualification"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 365194359,
+          "mode": "list",
+          "cachedResultName": "Company_Qualification"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "company_key"
+          ],
+          "schema": [
+            {
+              "id": "company_key",
+              "displayName": "company_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_domain",
+              "displayName": "company_domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company_website",
+              "displayName": "company_website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "verified_company_country",
+              "displayName": "verified_company_country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "entity_type",
+              "displayName": "entity_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "direct_employer_priority",
+              "displayName": "direct_employer_priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ecosystem_value",
+              "displayName": "ecosystem_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_url",
+              "displayName": "careers_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_page_status",
+              "displayName": "careers_page_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "openings_count",
+              "displayName": "openings_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_openings_count",
+              "displayName": "relevant_openings_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_role_titles",
+              "displayName": "relevant_role_titles",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relevant_vacancy_urls",
+              "displayName": "relevant_vacancy_urls",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vacancy_status",
+              "displayName": "vacancy_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_signal",
+              "displayName": "hiring_signal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hiring_evidence",
+              "displayName": "hiring_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "english_workplace_evidence",
+              "displayName": "english_workplace_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relocation_support_status",
+              "displayName": "relocation_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "relocation_evidence",
+              "displayName": "relocation_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_support_status",
+              "displayName": "visa_support_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "visa_evidence",
+              "displayName": "visa_evidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opportunity_type",
+              "displayName": "opportunity_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_score",
+              "displayName": "qualification_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_reason",
+              "displayName": "qualification_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_status",
+              "displayName": "qualification_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_checked",
+              "displayName": "last_checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qualification_version",
+              "displayName": "qualification_version",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "careers_contact_email",
+              "displayName": "careers_contact_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "outreach_angle",
+              "displayName": "outreach_angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2784,
+        464
+      ],
+      "id": "c62d8ca1-edcc-4c35-b775-bf63e4508bf3",
+      "name": "Save Vacancy Qualification"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2ee890e5-6ada-423f-a896-400d7149748a",
+              "leftValue": "={{\n  String($json.careers_url ?? '').trim() !== '' &&\n  ['CAREERS_PAGE_FOUND', 'CAREERS_PAGE_POSSIBLE']\n    .includes(String($json.careers_page_status ?? ''))\n}}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1040,
+        272
+      ],
+      "id": "454df135-9002-43d7-b6fc-aa0bc3da743d",
+      "name": "Has Saved Careers URL?"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -96,
+        272
+      ],
+      "id": "b0ab6568-55d4-46a4-ba8b-423021398913",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Job Automation Data"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 365194359,
+          "mode": "list",
+          "cachedResultName": "Company_Qualification"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        384,
+        368
+      ],
+      "id": "cd783592-249f-48a1-a462-1ab812daea71",
+      "name": "Load Existing Qualifications"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeKey(value) {\n  return String(value ?? '')\n    .trim()\n    .toLowerCase();\n}\n\n\n// Companies already present in Company_Qualification\nconst existingKeys = new Set(\n  $('Load Existing Qualifications')\n    .all()\n    .map(item =>\n      normalizeKey(item.json.company_key)\n    )\n    .filter(Boolean)\n);\n\n\nconst inputs = $input.all();\n\nconst seenThisRun = new Set();\nconst output = [];\n\nfor (let i = 0; i < inputs.length; i++) {\n  const item = inputs[i];\n\n  const key = normalizeKey(\n    item.json.company_key\n  );\n\n  if (!key) {\n    continue;\n  }\n\n  // Already qualified previously\n  if (existingKeys.has(key)) {\n    continue;\n  }\n\n  // Duplicate candidate in this execution\n  if (seenThisRun.has(key)) {\n    continue;\n  }\n\n  seenThisRun.add(key);\n\n  output.push({\n    json: {\n      ...item.json,\n    },\n    pairedItem: {\n      item: i,\n    },\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -96
+      ],
+      "id": "cd0d9f3d-d6c6-4fc5-8062-0c9cb31ca36f",
+      "name": "Keep Companies Needing Qualification"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Load Companies to Qualify",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Existing Qualifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Companies to Qualify": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Company": {
+      "main": [
+        [
+          {
+            "node": "Merge Company With Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Company With Qualification": {
+      "main": [
+        [
+          {
+            "node": "Keep Companies Needing Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Qualification?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Website Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Website Scan": {
+      "main": [
+        [
+          {
+            "node": "Has Company Website?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Company Website?": {
+      "main": [
+        [
+          {
+            "node": "Has Saved Careers URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Company Homepage": {
+      "main": [
+        [
+          {
+            "node": "Extract Homepage Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Homepage Links": {
+      "main": [
+        [
+          {
+            "node": "Identify Important Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Important Links": {
+      "main": [
+        [
+          {
+            "node": "Build Career Page Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Career Page Candidates": {
+      "main": [
+        [
+          {
+            "node": "Split Career Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Career Candidates": {
+      "main": [
+        [
+          {
+            "node": "Probe Career Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Probe Career Candidate": {
+      "main": [
+        [
+          {
+            "node": "Assess Career Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Career Candidate": {
+      "main": [
+        [
+          {
+            "node": "Summarize Career Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Career Scan": {
+      "main": [
+        [
+          {
+            "node": "Has Careers Page?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Careers Page?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Careers Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Speculative Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Speculative Path": {
+      "main": [
+        [
+          {
+            "node": "Save Speculative Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Careers Page": {
+      "main": [
+        [
+          {
+            "node": "Extract Career Page Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Career Page Links": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Listings": {
+      "main": [
+        [
+          {
+            "node": "Finalize Vacancy Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Vacancy Qualification": {
+      "main": [
+        [
+          {
+            "node": "Save Vacancy Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Saved Careers URL?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Careers Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Company Homepage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Load Companies to Qualify",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Existing Qualifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Existing Qualifications": {
+      "main": [
+        [
+          {
+            "node": "Merge Company With Qualification",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Keep Companies Needing Qualification": {
+      "main": [
+        [
+          {
+            "node": "Needs Qualification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}
